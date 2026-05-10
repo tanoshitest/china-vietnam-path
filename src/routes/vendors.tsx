@@ -7,7 +7,7 @@ import { Plus, Phone } from "lucide-react";
 
 export const Route = createFileRoute("/vendors")({
   component: VendorsPage,
-  head: () => ({ meta: [{ title: "Chi phí & Vendor — LogiTrans" }] }),
+  head: () => ({ meta: [{ title: "Chi phí & Vendor — Quocviet JR" }] }),
 });
 
 const typeColors: Record<string, string> = {

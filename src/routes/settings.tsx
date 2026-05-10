@@ -7,7 +7,7 @@ import { Plus, Shield } from "lucide-react";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
-  head: () => ({ meta: [{ title: "Cài đặt — LogiTrans" }] }),
+  head: () => ({ meta: [{ title: "Cài đặt — Quocviet JR" }] }),
 });
 
 const roleColors: Record<string, string> = {
@@ -73,7 +73,7 @@ function SettingsPage() {
           <Card className="p-5">
             <h3 className="font-semibold text-slate-900 mb-3">Thông tin công ty</h3>
             <dl className="space-y-2 text-sm">
-              <div className="flex justify-between"><dt className="text-slate-500">Tên</dt><dd>LogiTrans Co., Ltd.</dd></div>
+              <div className="flex justify-between"><dt className="text-slate-500">Tên</dt><dd>Quocviet JR Co., Ltd.</dd></div>
               <div className="flex justify-between"><dt className="text-slate-500">Mã số thuế</dt><dd>0312345678</dd></div>
               <div className="flex justify-between"><dt className="text-slate-500">Trụ sở</dt><dd>Hà Nội, Việt Nam</dd></div>
             </dl>
