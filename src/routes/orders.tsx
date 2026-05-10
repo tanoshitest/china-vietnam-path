@@ -66,9 +66,47 @@ function OrdersPage() {
             <h2 className="text-xl font-semibold text-slate-900">Quản lý Vận đơn</h2>
             <p className="text-sm text-slate-500">Theo dõi toàn bộ đơn hàng tuyến TQ – VN</p>
           </div>
-          <Button>
-            <Plus className="w-4 h-4" /> Tạo vận đơn
-          </Button>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="w-4 h-4" /> Tạo vận đơn
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Tạo vận đơn mới</DialogTitle>
+                <DialogDescription>Nhập thông tin lô hàng tuyến TQ – VN</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={submit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="client">Khách hàng</Label>
+                  <Input id="client" placeholder="VD: Công ty TNHH ABC" value={form.client} onChange={(e) => setForm({ ...form, client: e.target.value })} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label htmlFor="origin">Điểm đi</Label>
+                    <Input id="origin" value={form.origin} onChange={(e) => setForm({ ...form, origin: e.target.value })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="destination">Điểm đến</Label>
+                    <Input id="destination" value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="weight">Khối lượng (kg)</Label>
+                  <Input id="weight" type="number" placeholder="VD: 250" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="note">Ghi chú</Label>
+                  <Textarea id="note" placeholder="Hàng dễ vỡ, cần đóng gói cẩn thận..." value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setOpen(false)}>Hủy</Button>
+                  <Button type="submit">Tạo vận đơn</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
 
         <Card className="p-4">
