@@ -66,7 +66,43 @@ function SettingsPage() {
               <Shield className="w-4 h-4 text-primary" />
               <h3 className="font-semibold text-slate-900">Người dùng & Phân quyền</h3>
             </div>
-            <Button size="sm"><Plus className="w-4 h-4" /> Thêm người dùng</Button>
+            <Dialog open={open} onOpenChange={setOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm"><Plus className="w-4 h-4" /> Thêm người dùng</Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Thêm người dùng</DialogTitle>
+                  <DialogDescription>Cấp quyền truy cập hệ thống</DialogDescription>
+                </DialogHeader>
+                <form onSubmit={submit} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="uname">Họ và tên</Label>
+                    <Input id="uname" placeholder="VD: Nguyễn Văn A" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email</Label>
+                    <Input id="email" type="email" placeholder="user@quocvietjr.vn" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Vai trò</Label>
+                    <Select value={form.role} onValueChange={(v) => setForm({ ...form, role: v })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Quản trị viên">Quản trị viên</SelectItem>
+                        <SelectItem value="Điều phối">Điều phối</SelectItem>
+                        <SelectItem value="Kế toán">Kế toán</SelectItem>
+                        <SelectItem value="Nhân viên kho">Nhân viên kho</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setOpen(false)}>Hủy</Button>
+                    <Button type="submit">Thêm người dùng</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
           </div>
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
