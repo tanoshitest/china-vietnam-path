@@ -1,7 +1,27 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
+import { toast } from "sonner";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { vendors, formatVND } from "@/lib/mock-data";
 import { Plus, Phone } from "lucide-react";
 
@@ -24,6 +44,20 @@ function VendorsPage() {
     return acc;
   }, {});
 
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: "", type: "Vendor vận chuyển TQ", contact: "", note: "" });
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name || !form.contact) {
+      toast.error("Vui lòng nhập tên vendor và số liên hệ");
+      return;
+    }
+    toast.success(`Đã thêm vendor "${form.name}"`, { description: form.type });
+    setOpen(false);
+    setForm({ name: "", type: "Vendor vận chuyển TQ", contact: "", note: "" });
+  };
+
   return (
     <AppLayout>
       <div className="space-y-5">
@@ -32,7 +66,43 @@ function VendorsPage() {
             <h2 className="text-xl font-semibold text-slate-900">Chi phí & Vendor</h2>
             <p className="text-sm text-slate-500">Quản lý nhà xe, hải quan, bốc xếp</p>
           </div>
-          <Button><Plus className="w-4 h-4" /> Thêm Vendor</Button>
+          <Dialog open={open} onOpenChange={setOpen}>
+            <DialogTrigger asChild>
+              <Button><Plus className="w-4 h-4" /> Thêm Vendor</Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Thêm Vendor mới</DialogTitle>
+                <DialogDescription>Đối tác vận chuyển, thông quan hoặc bốc xếp</DialogDescription>
+              </DialogHeader>
+              <form onSubmit={submit} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="vname">Tên vendor</Label>
+                  <Input id="vname" placeholder="VD: Nhà xe Hải Long" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Loại vendor</Label>
+                  <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Vendor vận chuyển TQ">Vendor vận chuyển TQ</SelectItem>
+                      <SelectItem value="Vendor thông quan">Vendor thông quan</SelectItem>
+                      <SelectItem value="Nhà xe VN">Nhà xe VN</SelectItem>
+                      <SelectItem value="Phí bốc xếp">Phí bốc xếp</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="contact">Số điện thoại liên hệ</Label>
+                  <Input id="contact" placeholder="VD: 0912 345 678" value={form.contact} onChange={(e) => setForm({ ...form, contact: e.target.value })} />
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setOpen(false)}>Hủy</Button>
+                  <Button type="submit">Thêm Vendor</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
