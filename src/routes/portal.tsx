@@ -11,7 +11,7 @@ import { LogIn, LogOut, UserCircle, AlertTriangle, Wallet } from "lucide-react";
 
 export const Route = createFileRoute("/portal")({
   component: PortalPage,
-  head: () => ({ meta: [{ title: "Cổng Khách hàng — LogiTrans" }] }),
+  head: () => ({ meta: [{ title: "Cổng Khách hàng — Quocviet JR" }] }),
 });
 
 function PortalPage() {

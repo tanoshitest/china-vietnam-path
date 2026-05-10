@@ -19,7 +19,7 @@ export const Route = createFileRoute("/tracking")({
   component: TrackingPage,
   head: () => ({
     meta: [
-      { title: "Tra cứu vận đơn — LogiTrans" },
+      { title: "Tra cứu vận đơn — Quocviet JR" },
       { name: "description", content: "Tra cứu trạng thái vận đơn TQ – VN bằng mã CTV." },
     ],
   }),

@@ -25,7 +25,7 @@ export const Route = createFileRoute("/")({
   component: Dashboard,
   head: () => ({
     meta: [
-      { title: "Tổng quan — LogiTrans" },
+      { title: "Tổng quan — Quocviet JR" },
       { name: "description", content: "Bảng điều khiển hệ thống quản lý vận chuyển TQ-VN." },
     ],
   }),

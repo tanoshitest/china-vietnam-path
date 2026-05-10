@@ -73,10 +73,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "LogiTrans — Quản lý vận chuyển TQ-VN" },
+      { title: "Quocviet JR — Quản lý vận chuyển TQ-VN" },
       { name: "description", content: "Hệ thống quản lý vận chuyển tuyến Trung Quốc – Việt Nam" },
-      { property: "og:title", content: "LogiTrans — Quản lý vận chuyển TQ-VN" },
-      { name: "twitter:title", content: "LogiTrans — Quản lý vận chuyển TQ-VN" },
+      { property: "og:title", content: "Quocviet JR — Quản lý vận chuyển TQ-VN" },
+      { name: "twitter:title", content: "Quocviet JR — Quản lý vận chuyển TQ-VN" },
       { property: "og:description", content: "Hệ thống quản lý vận chuyển tuyến Trung Quốc – Việt Nam" },
       { name: "twitter:description", content: "Hệ thống quản lý vận chuyển tuyến Trung Quốc – Việt Nam" },
       { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/b0c95b64-6179-4d79-9bf1-53fc312728b1/id-preview-dbba3fbc--a8737061-b39e-4353-b94b-11dec33a877a.lovable.app-1778429484040.png" },

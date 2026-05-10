@@ -30,7 +30,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
             <Truck className="w-5 h-5 text-primary-foreground" />
           </div>
           <div>
-            <div className="font-semibold text-sm text-slate-900">LogiTrans</div>
+            <div className="font-semibold text-sm text-slate-900">Quocviet JR</div>
             <div className="text-[11px] text-slate-500">TQ ↔ VN Logistics</div>
           </div>
         </div>

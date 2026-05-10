@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/orders")({
   component: OrdersPage,
-  head: () => ({ meta: [{ title: "Quản lý Vận đơn — LogiTrans" }] }),
+  head: () => ({ meta: [{ title: "Quản lý Vận đơn — Quocviet JR" }] }),
 });
 
 function OrdersPage() {

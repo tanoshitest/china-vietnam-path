@@ -27,7 +27,7 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/orders/$id")({
   component: OrderDetail,
   head: ({ params }) => ({
-    meta: [{ title: `Vận đơn ${params.id} — LogiTrans` }],
+    meta: [{ title: `Vận đơn ${params.id} — Quocviet JR` }],
   }),
 });
 
