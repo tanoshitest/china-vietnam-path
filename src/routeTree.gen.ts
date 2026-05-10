@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as VendorsRouteImport } from './routes/vendors'
 import { Route as TrackingRouteImport } from './routes/tracking'
+import { Route as PortalRouteImport } from './routes/portal'
 import { Route as OrdersRouteImport } from './routes/orders'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrdersIdRouteImport } from './routes/orders.$id'
@@ -23,6 +24,11 @@ const VendorsRoute = VendorsRouteImport.update({
 const TrackingRoute = TrackingRouteImport.update({
   id: '/tracking',
   path: '/tracking',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PortalRoute = PortalRouteImport.update({
+  id: '/portal',
+  path: '/portal',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrdersRoute = OrdersRouteImport.update({
@@ -44,6 +50,7 @@ const OrdersIdRoute = OrdersIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/orders': typeof OrdersRouteWithChildren
+  '/portal': typeof PortalRoute
   '/tracking': typeof TrackingRoute
   '/vendors': typeof VendorsRoute
   '/orders/$id': typeof OrdersIdRoute
@@ -51,6 +58,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/orders': typeof OrdersRouteWithChildren
+  '/portal': typeof PortalRoute
   '/tracking': typeof TrackingRoute
   '/vendors': typeof VendorsRoute
   '/orders/$id': typeof OrdersIdRoute
@@ -59,21 +67,36 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/orders': typeof OrdersRouteWithChildren
+  '/portal': typeof PortalRoute
   '/tracking': typeof TrackingRoute
   '/vendors': typeof VendorsRoute
   '/orders/$id': typeof OrdersIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/orders' | '/tracking' | '/vendors' | '/orders/$id'
+  fullPaths:
+    | '/'
+    | '/orders'
+    | '/portal'
+    | '/tracking'
+    | '/vendors'
+    | '/orders/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/orders' | '/tracking' | '/vendors' | '/orders/$id'
-  id: '__root__' | '/' | '/orders' | '/tracking' | '/vendors' | '/orders/$id'
+  to: '/' | '/orders' | '/portal' | '/tracking' | '/vendors' | '/orders/$id'
+  id:
+    | '__root__'
+    | '/'
+    | '/orders'
+    | '/portal'
+    | '/tracking'
+    | '/vendors'
+    | '/orders/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   OrdersRoute: typeof OrdersRouteWithChildren
+  PortalRoute: typeof PortalRoute
   TrackingRoute: typeof TrackingRoute
   VendorsRoute: typeof VendorsRoute
 }
@@ -92,6 +115,13 @@ declare module '@tanstack/react-router' {
       path: '/tracking'
       fullPath: '/tracking'
       preLoaderRoute: typeof TrackingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/portal': {
+      id: '/portal'
+      path: '/portal'
+      fullPath: '/portal'
+      preLoaderRoute: typeof PortalRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/orders': {
@@ -132,6 +162,7 @@ const OrdersRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   OrdersRoute: OrdersRouteWithChildren,
+  PortalRoute: PortalRoute,
   TrackingRoute: TrackingRoute,
   VendorsRoute: VendorsRoute,
 }
