@@ -35,6 +35,20 @@ export const Route = createFileRoute("/orders")({
 function OrdersPage() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>("all");
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ client: "", origin: "Quảng Châu", destination: "Hà Nội", weight: "", note: "" });
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.client || !form.weight) {
+      toast.error("Vui lòng nhập đầy đủ thông tin");
+      return;
+    }
+    const code = "CTV-" + Math.floor(100000 + Math.random() * 900000);
+    toast.success(`Đã tạo vận đơn ${code}`, { description: `Khách hàng: ${form.client}` });
+    setOpen(false);
+    setForm({ client: "", origin: "Quảng Châu", destination: "Hà Nội", weight: "", note: "" });
+  };
 
   const filtered = orders.filter((o) => {
     const matchQ =
