@@ -38,6 +38,20 @@ const roleColors: Record<string, string> = {
 };
 
 function SettingsPage() {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: "", email: "", role: "Điều phối" });
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.name || !form.email) {
+      toast.error("Vui lòng nhập họ tên và email");
+      return;
+    }
+    toast.success(`Đã thêm người dùng ${form.name}`, { description: `Vai trò: ${form.role}` });
+    setOpen(false);
+    setForm({ name: "", email: "", role: "Điều phối" });
+  };
+
   return (
     <AppLayout>
       <div className="space-y-5">
