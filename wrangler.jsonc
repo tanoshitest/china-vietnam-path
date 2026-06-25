@@ -5,7 +5,7 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "main": "dist/server/server.js",
+  "main": "dist/server.js",
   "assets": {
     "directory": "./dist/client"
   }
