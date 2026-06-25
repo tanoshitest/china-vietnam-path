@@ -149,7 +149,10 @@ export function UsersPanel() {
   return (
     <div className="space-y-5 text-left">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-500">Quản lý tài khoản nhân sự theo vai trò Admin và Sale.</p>
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">Quản lý người dùng</h2>
+          <p className="text-sm text-slate-500">Quản lý tài khoản nhân sự theo vai trò Admin và Sale.</p>
+        </div>
 
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>

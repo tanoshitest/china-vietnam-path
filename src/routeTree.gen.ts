@@ -10,12 +10,14 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as VendorsRouteImport } from './routes/vendors'
+import { Route as UsersRouteImport } from './routes/users'
 import { Route as TrackingRouteImport } from './routes/tracking'
 import { Route as SuppliersRouteImport } from './routes/suppliers'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ProductsRouteImport } from './routes/products'
 import { Route as PortalRouteImport } from './routes/portal'
 import { Route as OrdersRouteImport } from './routes/orders'
+import { Route as LogsRouteImport } from './routes/logs'
 import { Route as CustomersRouteImport } from './routes/customers'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrdersIdRouteImport } from './routes/orders.$id'
@@ -23,6 +25,11 @@ import { Route as OrdersIdRouteImport } from './routes/orders.$id'
 const VendorsRoute = VendorsRouteImport.update({
   id: '/vendors',
   path: '/vendors',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const UsersRoute = UsersRouteImport.update({
+  id: '/users',
+  path: '/users',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TrackingRoute = TrackingRouteImport.update({
@@ -55,6 +62,11 @@ const OrdersRoute = OrdersRouteImport.update({
   path: '/orders',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LogsRoute = LogsRouteImport.update({
+  id: '/logs',
+  path: '/logs',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CustomersRoute = CustomersRouteImport.update({
   id: '/customers',
   path: '/customers',
@@ -74,24 +86,28 @@ const OrdersIdRoute = OrdersIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/customers': typeof CustomersRoute
+  '/logs': typeof LogsRoute
   '/orders': typeof OrdersRouteWithChildren
   '/portal': typeof PortalRoute
   '/products': typeof ProductsRoute
   '/settings': typeof SettingsRoute
   '/suppliers': typeof SuppliersRoute
   '/tracking': typeof TrackingRoute
+  '/users': typeof UsersRoute
   '/vendors': typeof VendorsRoute
   '/orders/$id': typeof OrdersIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/customers': typeof CustomersRoute
+  '/logs': typeof LogsRoute
   '/orders': typeof OrdersRouteWithChildren
   '/portal': typeof PortalRoute
   '/products': typeof ProductsRoute
   '/settings': typeof SettingsRoute
   '/suppliers': typeof SuppliersRoute
   '/tracking': typeof TrackingRoute
+  '/users': typeof UsersRoute
   '/vendors': typeof VendorsRoute
   '/orders/$id': typeof OrdersIdRoute
 }
@@ -99,12 +115,14 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/customers': typeof CustomersRoute
+  '/logs': typeof LogsRoute
   '/orders': typeof OrdersRouteWithChildren
   '/portal': typeof PortalRoute
   '/products': typeof ProductsRoute
   '/settings': typeof SettingsRoute
   '/suppliers': typeof SuppliersRoute
   '/tracking': typeof TrackingRoute
+  '/users': typeof UsersRoute
   '/vendors': typeof VendorsRoute
   '/orders/$id': typeof OrdersIdRoute
 }
@@ -113,36 +131,42 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/customers'
+    | '/logs'
     | '/orders'
     | '/portal'
     | '/products'
     | '/settings'
     | '/suppliers'
     | '/tracking'
+    | '/users'
     | '/vendors'
     | '/orders/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/customers'
+    | '/logs'
     | '/orders'
     | '/portal'
     | '/products'
     | '/settings'
     | '/suppliers'
     | '/tracking'
+    | '/users'
     | '/vendors'
     | '/orders/$id'
   id:
     | '__root__'
     | '/'
     | '/customers'
+    | '/logs'
     | '/orders'
     | '/portal'
     | '/products'
     | '/settings'
     | '/suppliers'
     | '/tracking'
+    | '/users'
     | '/vendors'
     | '/orders/$id'
   fileRoutesById: FileRoutesById
@@ -150,12 +174,14 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CustomersRoute: typeof CustomersRoute
+  LogsRoute: typeof LogsRoute
   OrdersRoute: typeof OrdersRouteWithChildren
   PortalRoute: typeof PortalRoute
   ProductsRoute: typeof ProductsRoute
   SettingsRoute: typeof SettingsRoute
   SuppliersRoute: typeof SuppliersRoute
   TrackingRoute: typeof TrackingRoute
+  UsersRoute: typeof UsersRoute
   VendorsRoute: typeof VendorsRoute
 }
 
@@ -166,6 +192,13 @@ declare module '@tanstack/react-router' {
       path: '/vendors'
       fullPath: '/vendors'
       preLoaderRoute: typeof VendorsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/users': {
+      id: '/users'
+      path: '/users'
+      fullPath: '/users'
+      preLoaderRoute: typeof UsersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/tracking': {
@@ -210,6 +243,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrdersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/logs': {
+      id: '/logs'
+      path: '/logs'
+      fullPath: '/logs'
+      preLoaderRoute: typeof LogsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/customers': {
       id: '/customers'
       path: '/customers'
@@ -248,12 +288,14 @@ const OrdersRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CustomersRoute: CustomersRoute,
+  LogsRoute: LogsRoute,
   OrdersRoute: OrdersRouteWithChildren,
   PortalRoute: PortalRoute,
   ProductsRoute: ProductsRoute,
   SettingsRoute: SettingsRoute,
   SuppliersRoute: SuppliersRoute,
   TrackingRoute: TrackingRoute,
+  UsersRoute: UsersRoute,
   VendorsRoute: VendorsRoute,
 }
 export const routeTree = rootRouteImport

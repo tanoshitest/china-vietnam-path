@@ -70,7 +70,10 @@ export function LogsPanel() {
 
   return (
     <div className="space-y-5 text-left">
-      <p className="text-sm text-slate-500">Nhật ký toàn bộ thao tác của người dùng trên hệ thống.</p>
+      <div>
+        <h2 className="text-xl font-bold text-slate-900">Lịch sử hệ thống</h2>
+        <p className="text-sm text-slate-500">Nhật ký toàn bộ thao tác của người dùng trên hệ thống.</p>
+      </div>
 
       {/* Filters */}
       <Card className="p-4">

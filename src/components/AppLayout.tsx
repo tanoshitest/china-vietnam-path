@@ -8,6 +8,8 @@ import {
   Users,
   ShoppingBag,
   Wallet,
+  UserCog,
+  History,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -44,7 +46,11 @@ const navGroups = [
   },
   {
     label: "Cấu hình",
-    items: [{ to: "/settings", label: "Cấu hình", icon: Settings }],
+    items: [
+      { to: "/settings", label: "Cấu hình chi phí", icon: Settings },
+      { to: "/users", label: "Quản lý người dùng", icon: UserCog },
+      { to: "/logs", label: "Lịch sử hệ thống", icon: History },
+    ],
   },
 ];
 
