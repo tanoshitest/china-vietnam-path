@@ -11,9 +11,12 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as VendorsRouteImport } from './routes/vendors'
 import { Route as TrackingRouteImport } from './routes/tracking'
+import { Route as SuppliersRouteImport } from './routes/suppliers'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ProductsRouteImport } from './routes/products'
 import { Route as PortalRouteImport } from './routes/portal'
 import { Route as OrdersRouteImport } from './routes/orders'
+import { Route as CustomersRouteImport } from './routes/customers'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as OrdersIdRouteImport } from './routes/orders.$id'
 
@@ -27,9 +30,19 @@ const TrackingRoute = TrackingRouteImport.update({
   path: '/tracking',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SuppliersRoute = SuppliersRouteImport.update({
+  id: '/suppliers',
+  path: '/suppliers',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProductsRoute = ProductsRouteImport.update({
+  id: '/products',
+  path: '/products',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PortalRoute = PortalRouteImport.update({
@@ -40,6 +53,11 @@ const PortalRoute = PortalRouteImport.update({
 const OrdersRoute = OrdersRouteImport.update({
   id: '/orders',
   path: '/orders',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomersRoute = CustomersRouteImport.update({
+  id: '/customers',
+  path: '/customers',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -55,18 +73,24 @@ const OrdersIdRoute = OrdersIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/customers': typeof CustomersRoute
   '/orders': typeof OrdersRouteWithChildren
   '/portal': typeof PortalRoute
+  '/products': typeof ProductsRoute
   '/settings': typeof SettingsRoute
+  '/suppliers': typeof SuppliersRoute
   '/tracking': typeof TrackingRoute
   '/vendors': typeof VendorsRoute
   '/orders/$id': typeof OrdersIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/customers': typeof CustomersRoute
   '/orders': typeof OrdersRouteWithChildren
   '/portal': typeof PortalRoute
+  '/products': typeof ProductsRoute
   '/settings': typeof SettingsRoute
+  '/suppliers': typeof SuppliersRoute
   '/tracking': typeof TrackingRoute
   '/vendors': typeof VendorsRoute
   '/orders/$id': typeof OrdersIdRoute
@@ -74,9 +98,12 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/customers': typeof CustomersRoute
   '/orders': typeof OrdersRouteWithChildren
   '/portal': typeof PortalRoute
+  '/products': typeof ProductsRoute
   '/settings': typeof SettingsRoute
+  '/suppliers': typeof SuppliersRoute
   '/tracking': typeof TrackingRoute
   '/vendors': typeof VendorsRoute
   '/orders/$id': typeof OrdersIdRoute
@@ -85,27 +112,36 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/customers'
     | '/orders'
     | '/portal'
+    | '/products'
     | '/settings'
+    | '/suppliers'
     | '/tracking'
     | '/vendors'
     | '/orders/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/customers'
     | '/orders'
     | '/portal'
+    | '/products'
     | '/settings'
+    | '/suppliers'
     | '/tracking'
     | '/vendors'
     | '/orders/$id'
   id:
     | '__root__'
     | '/'
+    | '/customers'
     | '/orders'
     | '/portal'
+    | '/products'
     | '/settings'
+    | '/suppliers'
     | '/tracking'
     | '/vendors'
     | '/orders/$id'
@@ -113,9 +149,12 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  CustomersRoute: typeof CustomersRoute
   OrdersRoute: typeof OrdersRouteWithChildren
   PortalRoute: typeof PortalRoute
+  ProductsRoute: typeof ProductsRoute
   SettingsRoute: typeof SettingsRoute
+  SuppliersRoute: typeof SuppliersRoute
   TrackingRoute: typeof TrackingRoute
   VendorsRoute: typeof VendorsRoute
 }
@@ -136,11 +175,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TrackingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/suppliers': {
+      id: '/suppliers'
+      path: '/suppliers'
+      fullPath: '/suppliers'
+      preLoaderRoute: typeof SuppliersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/products': {
+      id: '/products'
+      path: '/products'
+      fullPath: '/products'
+      preLoaderRoute: typeof ProductsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/portal': {
@@ -155,6 +208,13 @@ declare module '@tanstack/react-router' {
       path: '/orders'
       fullPath: '/orders'
       preLoaderRoute: typeof OrdersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customers': {
+      id: '/customers'
+      path: '/customers'
+      fullPath: '/customers'
+      preLoaderRoute: typeof CustomersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -187,12 +247,25 @@ const OrdersRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  CustomersRoute: CustomersRoute,
   OrdersRoute: OrdersRouteWithChildren,
   PortalRoute: PortalRoute,
+  ProductsRoute: ProductsRoute,
   SettingsRoute: SettingsRoute,
+  SuppliersRoute: SuppliersRoute,
   TrackingRoute: TrackingRoute,
   VendorsRoute: VendorsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

@@ -19,7 +19,7 @@ export const Route = createFileRoute("/tracking")({
   component: TrackingPage,
   head: () => ({
     meta: [
-      { title: "Tra cứu vận đơn — Quocviet JR" },
+      { title: "Tra Cứu vận đơn — Quocviet JR" },
       { name: "description", content: "Tra cứu trạng thái vận đơn TQ – VN bằng mã CTV." },
     ],
   }),
@@ -33,10 +33,10 @@ function TrackingPage() {
 
   return (
     <AppLayout>
-      <div className="max-w-3xl mx-auto space-y-6">
+      <div className="mx-auto max-w-3xl space-y-6">
         <div className="text-center">
-          <h2 className="text-2xl font-semibold text-slate-900">Tra cứu vận đơn</h2>
-          <p className="text-sm text-slate-500 mt-1">Nhập mã vận đơn (ví dụ: CTV-123456)</p>
+          <h2 className="text-2xl font-semibold text-slate-900">Tra Cứu vận đơn</h2>
+          <p className="mt-1 text-sm text-slate-500">Nhập mã vận đơn (ví dụ: CTV-123456)</p>
         </div>
 
         <Card className="p-5">
@@ -48,51 +48,60 @@ function TrackingPage() {
             }}
           >
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
                 placeholder="CTV-XXXXXX"
-                className="pl-9 h-11"
+                className="h-11 pl-9"
               />
             </div>
-            <Button type="submit" className="h-11 px-6">Tra cứu</Button>
+            <Button type="submit" className="h-11 px-6">
+              Tra Cứu
+            </Button>
           </form>
         </Card>
 
         {order ? (
           <Card className="p-6">
-            <div className="flex items-start justify-between mb-5">
+            <div className="mb-5 flex items-start justify-between">
               <div>
                 <div className="text-xs text-slate-500">Mã vận đơn</div>
                 <div className="text-lg font-semibold text-slate-900">{order.code}</div>
-                <div className="text-sm text-slate-600 mt-1">
+                <div className="mt-1 text-sm text-slate-600">
                   {order.origin} → {order.destination} · {order.weight}
                 </div>
               </div>
-              <span className={cn("px-3 py-1 rounded-full text-xs border", statusColor[order.status as OrderStatus])}>
+              <span className={cn("rounded-full border px-3 py-1 text-xs", statusColor[order.status as OrderStatus])}>
                 {statusLabel[order.status as OrderStatus]}
               </span>
             </div>
 
             <div className="relative mb-5">
               {order.timeline.map((step, idx) => (
-                <div key={idx} className="flex gap-4 pb-5 last:pb-0 relative">
+                <div key={idx} className="relative flex gap-4 pb-5 last:pb-0">
                   {idx < order.timeline.length - 1 && (
-                    <div className={cn("absolute left-3 top-7 bottom-0 w-0.5", step.done ? "bg-primary" : "bg-slate-200")} />
+                    <div
+                      className={cn(
+                        "absolute bottom-0 left-3 top-7 w-0.5",
+                        step.done ? "bg-primary" : "bg-slate-200"
+                      )}
+                    />
                   )}
                   <div className="relative z-10 mt-0.5">
                     {step.done ? (
-                      <CheckCircle2 className="w-6 h-6 text-primary fill-primary/10" />
+                      <CheckCircle2 className="h-6 w-6 fill-primary/10 text-primary" />
                     ) : (
-                      <Circle className="w-6 h-6 text-slate-300" />
+                      <Circle className="h-6 w-6 text-slate-300" />
                     )}
                   </div>
                   <div className="flex-1">
                     <div className={cn("font-medium", step.done ? "text-slate-900" : "text-slate-500")}>
                       {step.label}
                     </div>
-                    <div className="text-xs text-slate-500 mt-0.5">{step.location} · {step.date}</div>
+                    <div className="mt-0.5 text-xs text-slate-500">
+                      {step.location} · {step.date}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -101,29 +110,31 @@ function TrackingPage() {
             <Dialog>
               <DialogTrigger asChild>
                 <Button variant="outline" className="w-full">
-                  <FileText className="w-4 h-4" /> Xem biên bản ký nhận
+                  <FileText className="h-4 w-4" /> Xem biên bản ký nhận
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-w-2xl">
                 <DialogHeader>
                   <DialogTitle>Biên bản ký nhận – {order.code}</DialogTitle>
                 </DialogHeader>
-                <div className="rounded-lg overflow-hidden bg-slate-100 aspect-[4/3]">
+                <div className="aspect-[4/3] overflow-hidden rounded-lg bg-slate-100">
                   <img
                     src={order.images[0] || "https://picsum.photos/seed/sign/800/600"}
                     alt="Biên bản"
-                    className="w-full h-full object-cover"
+                    className="h-full w-full object-cover"
                   />
                 </div>
-                <p className="text-xs text-slate-500">Ký nhận bởi: Nguyễn Văn Khách · {order.timeline.at(-1)?.date}</p>
+                <p className="text-xs text-slate-500">
+                  Ký nhận bởi: Nguyễn Văn Khách · {order.timeline.at(-1)?.date}
+                </p>
               </DialogContent>
             </Dialog>
           </Card>
         ) : (
           <Card className="p-10 text-center">
-            <Package className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-            <div className="text-slate-700 font-medium">Không tìm thấy vận đơn</div>
-            <div className="text-sm text-slate-500 mt-1">Vui lòng kiểm tra lại mã vận đơn</div>
+            <Package className="mx-auto mb-3 h-10 w-10 text-slate-300" />
+            <div className="font-medium text-slate-700">Không tìm thấy vận đơn</div>
+            <div className="mt-1 text-sm text-slate-500">Vui lòng kiểm tra lại mã vận đơn</div>
           </Card>
         )}
       </div>

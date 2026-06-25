@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
 import {
@@ -52,13 +52,13 @@ function StatCard({
   };
   return (
     <Card className="p-5">
-      <div className="flex items-start justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
           <div className="text-sm text-slate-500">{label}</div>
-          <div className="text-2xl font-semibold text-slate-900 mt-2">{value}</div>
+          <div className="text-2xl font-semibold text-slate-900 mt-2 tabular-nums truncate">{value}</div>
           {delta && <div className="text-xs text-slate-500 mt-1">{delta}</div>}
         </div>
-        <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center", tones[tone])}>
+        <div className={cn("w-10 h-10 shrink-0 rounded-lg flex items-center justify-center", tones[tone])}>
           <Icon className="w-5 h-5" />
         </div>
       </div>
@@ -75,6 +75,13 @@ function Dashboard() {
   return (
     <AppLayout>
       <div className="space-y-6">
+        {/* Page heading */}
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">Tổng quan</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Bảng điều khiển hoạt động tuyến Trung Quốc – Việt Nam</p>
+        </div>
+
+        {/* Summary stat cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard icon={Package} label="Đơn hàng trong tháng" value={String(monthOrders)} delta="+12% so với tháng trước" tone="blue" />
           <StatCard icon={TrendingUp} label="Doanh thu dự kiến" value={formatVND(expectedRevenue)} delta="Tính trên đơn đang xử lý" tone="green" />
@@ -82,15 +89,14 @@ function Dashboard() {
           <StatCard icon={Truck} label="Đơn đang vận chuyển" value={String(inTransit)} delta="Cập nhật real-time" tone="yellow" />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Card className="p-5 lg:col-span-2">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="font-semibold text-slate-900">Sản lượng hàng theo tuần</h3>
-                <p className="text-xs text-slate-500">Đơn vị: kg</p>
-              </div>
+        {/* Charts — balanced two-column layout */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card className="p-5">
+            <div className="mb-4">
+              <h3 className="font-semibold text-slate-900">Sản lượng hàng theo tuần</h3>
+              <p className="text-xs text-slate-500">Đơn vị: kg</p>
             </div>
-            <ResponsiveContainer width="100%" height={260}>
+            <ResponsiveContainer width="100%" height={280}>
               <BarChart data={weeklyVolume}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="week" stroke="#64748b" fontSize={12} />
@@ -102,8 +108,11 @@ function Dashboard() {
           </Card>
 
           <Card className="p-5">
-            <h3 className="font-semibold text-slate-900 mb-4">Doanh thu (triệu VND)</h3>
-            <ResponsiveContainer width="100%" height={260}>
+            <div className="mb-4">
+              <h3 className="font-semibold text-slate-900">Doanh thu</h3>
+              <p className="text-xs text-slate-500">Đơn vị: triệu VND</p>
+            </div>
+            <ResponsiveContainer width="100%" height={280}>
               <LineChart data={revenueByMonth}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="month" stroke="#64748b" fontSize={12} />
@@ -115,8 +124,14 @@ function Dashboard() {
           </Card>
         </div>
 
+        {/* Recent orders */}
         <Card className="p-5">
-          <h3 className="font-semibold text-slate-900 mb-4">Đơn hàng gần đây</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-slate-900">Đơn hàng gần đây</h3>
+            <Link to="/orders" className="text-xs font-semibold text-primary hover:underline">
+              Xem tất cả
+            </Link>
+          </div>
           <div className="overflow-hidden rounded-lg border border-slate-200">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
@@ -125,21 +140,25 @@ function Dashboard() {
                   <th className="text-left px-4 py-3 font-medium">Khách hàng</th>
                   <th className="text-left px-4 py-3 font-medium">Trạng thái</th>
                   <th className="text-right px-4 py-3 font-medium">Cước phí</th>
-                  <th className="text-left px-4 py-3 font-medium">Ngày tạo</th>
+                  <th className="text-right px-4 py-3 font-medium">Ngày tạo</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {orders.slice(0, 5).map((o) => (
                   <tr key={o.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-medium text-primary">{o.code}</td>
+                    <td className="px-4 py-3">
+                      <Link to="/orders/$id" params={{ id: o.id }} className="text-sm font-semibold tabular-nums text-primary hover:underline">
+                        {o.code}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3 text-slate-700">{o.client}</td>
                     <td className="px-4 py-3">
                       <span className={cn("px-2 py-1 rounded-full text-xs border", statusColor[o.status])}>
                         {statusLabel[o.status]}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right text-slate-900 font-medium">{formatVND(o.fee)}</td>
-                    <td className="px-4 py-3 text-slate-600">{o.createdAt}</td>
+                    <td className="px-4 py-3 text-right text-sm font-semibold tabular-nums text-slate-900">{formatVND(o.fee)}</td>
+                    <td className="px-4 py-3 text-right text-sm tabular-nums text-slate-600">{o.createdAt}</td>
                   </tr>
                 ))}
               </tbody>

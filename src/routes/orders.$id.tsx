@@ -1,17 +1,11 @@
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, Link, notFound, useNavigate } from "@tanstack/react-router";
+import { useState, useEffect } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -19,8 +13,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, CheckCircle2, Circle, Upload, Plus, Image as ImageIcon } from "lucide-react";
-import { orders, statusLabel, statusColor, formatVND, type OrderStatus } from "@/lib/mock-data";
+import {
+  ArrowLeft,
+  Trash2,
+  Plus,
+  Check,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Upload,
+} from "lucide-react";
+import {
+  orders as mockOrders,
+  statusLabel,
+  statusColor,
+  formatVND,
+  clients as mockClients,
+  type OrderStatus,
+  type GoodsItem,
+} from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -31,175 +42,686 @@ export const Route = createFileRoute("/orders/$id")({
   }),
 });
 
+// Helpers for localStorage persistence
+const getStoredOrders = () => {
+  if (typeof window === "undefined") return mockOrders;
+  const stored = localStorage.getItem("viet_thao_orders");
+  if (stored) {
+    try {
+      return JSON.parse(stored);
+    } catch (e) {
+      return mockOrders;
+    }
+  }
+  localStorage.setItem("viet_thao_orders", JSON.stringify(mockOrders));
+  return mockOrders;
+};
+
+const saveStoredOrders = (newOrders: any[]) => {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("viet_thao_orders", JSON.stringify(newOrders));
+};
+
 function OrderDetail() {
   const { id } = Route.useParams();
-  const order = orders.find((o) => o.id === id);
-  if (!order) throw notFound();
+  const navigate = useNavigate();
+  const [allOrders, setAllOrders] = useState<any[]>([]);
+  const [order, setOrder] = useState<any | null>(null);
 
-  const totalCost = order.costs.reduce((s, c) => s + c.amount, 0);
-  const profit = order.fee - totalCost;
-  const [open, setOpen] = useState(false);
+  // Form states matching Frame 15
+  const [receivedDate, setReceivedDate] = useState("");
+  const [masterBill, setMasterBill] = useState("");
+  const [customCode, setCustomCode] = useState("");
+  const [selectedClient, setSelectedClient] = useState("");
+  const [origin, setOrigin] = useState("Quảng Châu");
+  const [destination, setDestination] = useState("Hà Nội");
+  const [note, setNote] = useState("");
+  const [currentStatus, setCurrentStatus] = useState<OrderStatus>("dang_van_chuyen");
+  const [updatedAt, setUpdatedAt] = useState("");
+
+  // Goods item dynamic list
+  const [items, setItems] = useState<GoodsItem[]>([]);
+  
+  // Local list units & clients
+  const [localClients, setLocalClients] = useState<any[]>(() => {
+    if (typeof window === "undefined") return mockClients;
+    const stored = localStorage.getItem("viet_thao_clients");
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch (e) {
+        return mockClients;
+      }
+    }
+    return mockClients;
+  });
+  const [localUnits, setLocalUnits] = useState(["Bao", "Hộp", "Thùng", "Kg", "Cái", "PCL", "Cuộn", "Kiện"]);
+  const [newClientName, setNewClientName] = useState("");
+  const [isAddingClient, setIsAddingClient] = useState(false);
+  const [showAddUnitRowId, setShowAddUnitRowId] = useState<string | null>(null);
+  const [newUnitValue, setNewUnitValue] = useState("");
+
+  // Lightbox Receipt Gallery state matching Frame 16
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [currentPhotoIdx, setCurrentPhotoIdx] = useState(0);
+
+  // Load order data from local storage
+  useEffect(() => {
+    const list = getStoredOrders();
+    setAllOrders(list);
+    const target = list.find((o) => o.id === id || o.code === id);
+    if (target) {
+      setOrder(target);
+      setReceivedDate(target.createdAt || "");
+      setMasterBill(target.masterBill || "");
+      setCustomCode(target.code || "");
+      setSelectedClient(target.client || "");
+      setOrigin(target.origin ? target.origin.replace(", TQ", "").replace(", VN", "") : "Quảng Châu");
+      setDestination(target.destination ? target.destination.replace(", TQ", "").replace(", VN", "") : "Hà Nội");
+      setNote(target.note || "");
+      setCurrentStatus(target.status);
+      setUpdatedAt(target.updatedAt || "");
+      
+      // Default mock items if none exist
+      if (target.items && target.items.length > 0) {
+        setItems(target.items);
+      } else {
+        setItems([
+          { id: "1", name: "bỉm bỉm", quantity: 1, unit: "PCL", weight: 267.23, volume: 8, shippingPrice: 120000000 },
+          { id: "2", name: "bỉm bỉm", quantity: 2, unit: "Bao", weight: 2700, volume: 1.2, shippingPrice: 2000000 }
+        ]);
+      }
+    }
+  }, [id]);
+
+  if (!order) {
+    return (
+      <AppLayout>
+        <div className="space-y-4 py-8 text-center">
+          <h2 className="text-xl font-bold text-slate-900">Không tìm thấy vận đơn</h2>
+          <p className="text-slate-500">Mã vận đơn không tồn tại hoặc đã bị xóa.</p>
+          <Link to="/orders" className="text-primary hover:underline text-sm font-semibold">
+            Quay lại danh sách
+          </Link>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  // Client add handler
+  const handleAddClient = () => {
+    if (!newClientName.trim()) {
+      toast.error("Tên khách hàng không được để trống");
+      return;
+    }
+    const newId = `KH00${localClients.length + 1}`;
+    const newC = { id: newId, name: newClientName.trim(), debt: 0, overdue: 0 };
+    const updated = [...localClients, newC];
+    setLocalClients(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("viet_thao_clients", JSON.stringify(updated));
+    }
+    setSelectedClient(newC.name);
+    setNewClientName("");
+    setIsAddingClient(false);
+    toast.success(`Đã thêm khách hàng mới: ${newC.name}`);
+  };
+
+  // Goods handlers
+  const addItem = () => {
+    const newId = Math.random().toString(36).substring(2, 9);
+    setItems([...items, { id: newId, name: "", quantity: 1, unit: "Bao", weight: 0, volume: 0, shippingPrice: 0, extraFee: 0 }]);
+  };
+
+  const removeItem = (rowId: string) => {
+    if (items.length === 1) {
+      toast.error("Vui lòng giữ lại ít nhất 1 hàng hoá");
+      return;
+    }
+    setItems(items.filter((item) => item.id !== rowId));
+  };
+
+  const updateItem = (rowId: string, field: keyof GoodsItem, value: any) => {
+    setItems(items.map((item) => {
+      if (item.id === rowId) {
+        return { ...item, [field]: value };
+      }
+      return item;
+    }));
+  };
+
+  // Calculations
+  const totalCost = items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.shippingPrice) || 0) + (Number(item.extraFee) || 0), 0);
+  const totalWeight = items.reduce((sum, item) => sum + (Number(item.weight) || 0) * (Number(item.quantity) || 1), 0);
+  const totalVolume = items.reduce((sum, item) => sum + (Number(item.volume) || 0) * (Number(item.quantity) || 1), 0);
+
+  // Form submit handler
+  const handleSave = () => {
+    if (!selectedClient) {
+      toast.error("Vui lòng nhập tên khách hàng");
+      return;
+    }
+
+    const weightDescs = items.map(it => `${it.quantity} ${it.unit}`).join(", ");
+
+    const updatedOrder = {
+      ...order,
+      code: customCode.trim() || order.code,
+      client: selectedClient,
+      clientId: localClients.find(c => c.name === selectedClient)?.id || "KH999",
+      status: currentStatus,
+      createdAt: receivedDate,
+      updatedAt: updatedAt,
+      fee: totalCost,
+      weight: weightDescs || `${totalWeight} kg`,
+      origin: origin.includes("TQ") ? origin : `${origin}, TQ`,
+      destination: destination.includes("VN") ? destination : `${destination}, VN`,
+      items,
+      note,
+      masterBill
+    };
+
+    const newOrdersList = allOrders.map((o) => (o.id === order.id ? updatedOrder : o));
+    setAllOrders(newOrdersList);
+    saveStoredOrders(newOrdersList);
+
+    toast.success(`Đã lưu thay đổi cho vận đơn ${updatedOrder.code}`);
+    navigate({ to: "/orders" });
+  };
+
+  // Timeline mock update based on status
+  const handleStatusChange = (val: OrderStatus) => {
+    setCurrentStatus(val);
+    setUpdatedAt(new Date().toISOString().split("T")[0]);
+  };
+
+  // Photo gallery logic
+  const handleOpenLightbox = (idx: number) => {
+    setCurrentPhotoIdx(idx);
+    setLightboxOpen(true);
+  };
+
+  const handlePrevPhoto = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCurrentPhotoIdx((prev) => (prev === 0 ? order.images.length - 1 : prev - 1));
+  };
+
+  const handleNextPhoto = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setCurrentPhotoIdx((prev) => (prev === order.images.length - 1 ? 0 : prev + 1));
+  };
 
   return (
     <AppLayout>
-      <div className="space-y-5">
-        <Link to="/orders" className="inline-flex items-center gap-1 text-sm text-slate-600 hover:text-primary">
+      <div className="space-y-5 text-left">
+        {/* Back Link */}
+        <Link to="/orders" className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-primary transition-colors">
           <ArrowLeft className="w-4 h-4" /> Quay lại danh sách
         </Link>
 
-        <div className="flex flex-wrap items-start justify-between gap-4">
+        {/* Title & Status Block matching Frame 15 */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2">
           <div>
-            <div className="flex items-center gap-3">
-              <h2 className="text-2xl font-semibold text-slate-900">{order.code}</h2>
-              <span className={cn("px-2 py-1 rounded-full text-xs border", statusColor[order.status as OrderStatus])}>
-                {statusLabel[order.status as OrderStatus]}
-              </span>
-            </div>
-            <p className="text-sm text-slate-500 mt-1">
-              {order.client} · {order.origin} → {order.destination} · {order.weight}
-            </p>
+            <h2 className="text-xl font-bold text-slate-900">Chi tiết vận đơn</h2>
+            <p className="text-xs text-slate-500 mt-0.5">Hiển thị thông tin lô hàng tuyến TQ – VN</p>
           </div>
 
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Upload className="w-4 h-4" /> Cập nhật trạng thái
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Cập nhật trạng thái vận đơn</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 py-2">
-                <div>
-                  <label className="text-sm font-medium text-slate-700">Trạng thái mới</label>
-                  <Select defaultValue={order.status}>
-                    <SelectTrigger className="mt-1.5"><SelectValue /></SelectTrigger>
+          <div className="flex items-center gap-3">
+            {/* Status dropdown */}
+            <Select value={currentStatus} onValueChange={(val) => handleStatusChange(val as OrderStatus)}>
+              <SelectTrigger className={cn("h-9 text-xs font-semibold border shadow-sm px-3.5 rounded-lg w-[190px]", statusColor[currentStatus])}>
+                <SelectValue placeholder="Chọn trạng thái" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="dang_ve" className="text-xs">Đang về kho</SelectItem>
+                <SelectItem value="nhan_kho_tq" className="text-xs">Nhận tại kho TQ</SelectItem>
+                <SelectItem value="xuat_kho_tq" className="text-xs">Xuất kho TQ</SelectItem>
+                <SelectItem value="thong_quan" className="text-xs">Thông quan biên giới</SelectItem>
+                <SelectItem value="van_chuyen_vn" className="text-xs">Vận chuyển nội địa VN</SelectItem>
+                <SelectItem value="dang_van_chuyen" className="text-xs">Đang vận chuyển</SelectItem>
+                <SelectItem value="cho_giao" className="text-xs">Chờ giao</SelectItem>
+                <SelectItem value="hoan_thanh" className="text-xs">Đã hoàn thành</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Editable date updated */}
+            <div className="flex items-center gap-1.5 shrink-0 bg-slate-50 border rounded-lg px-2 py-1 shadow-sm border-slate-200">
+              <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider pl-1">Ngày cập nhật:</span>
+              <input
+                type="date"
+                value={updatedAt}
+                onChange={(e) => setUpdatedAt(e.target.value)}
+                className="bg-transparent border-none outline-none text-slate-700 text-xs font-semibold select-none py-0.5 cursor-pointer w-[115px]"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* General Form Info */}
+        <Card className="p-5 shadow-sm border-slate-200 space-y-4 bg-white">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="receivedDate" className="text-xs font-semibold text-slate-700">Ngày nhận hàng *</Label>
+              <Input
+                id="receivedDate"
+                type="date"
+                value={receivedDate}
+                onChange={(e) => setReceivedDate(e.target.value)}
+                className="h-9 text-xs font-semibold"
+              />
+            </div>
+            
+            <div className="space-y-1.5">
+              <Label htmlFor="masterBill" className="text-xs font-semibold text-slate-700">Biển xe/vận đơn tổng</Label>
+              <Input
+                id="masterBill"
+                placeholder="VD: GZ02"
+                value={masterBill}
+                onChange={(e) => setMasterBill(e.target.value)}
+                className="h-9 text-xs font-semibold"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="customCode" className="text-xs font-semibold text-slate-700">Mã vận đơn</Label>
+              <Input
+                id="customCode"
+                placeholder="Nhập mã vận đơn..."
+                value={customCode}
+                onChange={(e) => setCustomCode(e.target.value)}
+                className="h-9 text-xs font-mono font-bold text-primary"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Client selector with plus trigger */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-slate-700">Khách hàng *</Label>
+              {isAddingClient ? (
+                <div className="flex gap-1.5">
+                  <Input
+                    placeholder="Tên khách mới..."
+                    value={newClientName}
+                    onChange={(e) => setNewClientName(e.target.value)}
+                    className="h-9 text-xs flex-1"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddClient();
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    onClick={handleAddClient}
+                    className="h-9 w-9 bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
+                  >
+                    <Check className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => { setIsAddingClient(false); setNewClientName(""); }}
+                    className="h-9 px-2 text-xs shrink-0 text-slate-500 hover:bg-slate-100"
+                  >
+                    Hủy
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-1.5">
+                  <Select value={selectedClient} onValueChange={setSelectedClient}>
+                    <SelectTrigger className="h-9 text-xs flex-1">
+                      <SelectValue placeholder="Chọn khách hàng..." />
+                    </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="dang_ve">Đang về kho</SelectItem>
-                      <SelectItem value="dang_van_chuyen">Đang vận chuyển</SelectItem>
-                      <SelectItem value="cho_giao">Chờ giao</SelectItem>
-                      <SelectItem value="hoan_thanh">Hoàn thành</SelectItem>
+                      {localClients.map((c) => (
+                        <SelectItem key={c.id} value={c.name} className="text-xs">
+                          {c.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="h-9 w-9 border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 shrink-0"
+                    onClick={() => setIsAddingClient(true)}
+                    title="Thêm khách hàng mới"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </Button>
                 </div>
-                <div>
-                  <label className="text-sm font-medium text-slate-700">Hình ảnh xác nhận</label>
-                  <div className="mt-1.5 border-2 border-dashed border-slate-200 rounded-lg p-6 text-center text-sm text-slate-500">
-                    <ImageIcon className="w-8 h-8 mx-auto mb-2 text-slate-400" />
-                    Kéo thả ảnh hoặc bấm để tải lên
-                  </div>
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setOpen(false)}>Hủy</Button>
-                <Button onClick={() => { setOpen(false); toast.success("Đã cập nhật trạng thái"); }}>
-                  Lưu thay đổi
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="p-4">
-            <div className="text-xs text-slate-500">Cước phí</div>
-            <div className="text-xl font-semibold text-slate-900 mt-1">{formatVND(order.fee)}</div>
-          </Card>
-          <Card className="p-4">
-            <div className="text-xs text-slate-500">Tổng chi phí</div>
-            <div className="text-xl font-semibold text-slate-900 mt-1">{formatVND(totalCost)}</div>
-          </Card>
-          <Card className="p-4">
-            <div className="text-xs text-slate-500">Lợi nhuận</div>
-            <div className={cn("text-xl font-semibold mt-1", profit >= 0 ? "text-green-600" : "text-red-600")}>
-              {formatVND(profit)}
+              )}
             </div>
-          </Card>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="origin" className="text-xs font-semibold text-slate-700">Khách xuất (Điểm đi)</Label>
+              <Input
+                id="origin"
+                value={origin}
+                onChange={(e) => setOrigin(e.target.value)}
+                className="h-9 text-xs font-semibold"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="destination" className="text-xs font-semibold text-slate-700">Khách đến (Điểm đến)</Label>
+              <Input
+                id="destination"
+                value={destination}
+                onChange={(e) => setDestination(e.target.value)}
+                className="h-9 text-xs font-semibold"
+              />
+            </div>
+          </div>
+        </Card>
+
+        {/* Dynamic Goods Items Editor */}
+        <div className="space-y-2 pt-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Danh sách hàng hóa</h3>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={addItem}
+              className="h-8 border-dashed border-blue-200 text-blue-600 hover:bg-blue-50 font-semibold"
+            >
+              <Plus className="w-3.5 h-3.5 mr-1" /> Thêm hàng hóa
+            </Button>
+          </div>
+
+          <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left border-collapse">
+                <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                  <tr>
+                    <th className="px-3 py-2.5 w-[22%]">Hàng hoá *</th>
+                    <th className="px-3 py-2.5 w-[8%] text-center">Số lượng</th>
+                    <th className="px-3 py-2.5 w-[12%]">Đơn vị</th>
+                    <th className="px-3 py-2.5 w-[11%]">K.Lượng (kg)</th>
+                    <th className="px-3 py-2.5 text-right w-[15%]">Đơn giá (VND)</th>
+                    <th className="px-3 py-2.5 text-right w-[15%]">Chi phí phát sinh (VND)</th>
+                    <th className="px-3 py-2.5 text-right w-[13%]">Thành tiền</th>
+                    <th className="px-3 py-2.5 text-center w-[6%]">Xóa</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {items.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-3 py-2">
+                        <Input
+                          value={item.name}
+                          onChange={(e) => updateItem(item.id, "name", e.target.value)}
+                          placeholder="Nhập tên hàng hoá..."
+                          className="h-8 text-xs py-1 px-2.5"
+                          required
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <Input
+                          type="number"
+                          min="1"
+                          value={item.quantity === 0 ? "" : item.quantity}
+                          onChange={(e) => updateItem(item.id, "quantity", Number(e.target.value) || 0)}
+                          className="h-8 text-xs py-1 px-2 text-center"
+                          required
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        {showAddUnitRowId === item.id ? (
+                          <div className="flex gap-1 items-center">
+                            <Input
+                              placeholder="Tên đơn vị..."
+                              value={newUnitValue}
+                              onChange={(e) => setNewUnitValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  if (newUnitValue.trim()) {
+                                    if (!localUnits.includes(newUnitValue.trim())) {
+                                      setLocalUnits([...localUnits, newUnitValue.trim()]);
+                                    }
+                                    updateItem(item.id, "unit", newUnitValue.trim());
+                                  }
+                                  setShowAddUnitRowId(null);
+                                  setNewUnitValue("");
+                                }
+                              }}
+                              className="h-8 py-1 px-1.5 text-xs flex-1 min-w-[60px]"
+                              autoFocus
+                            />
+                            <Button
+                              type="button"
+                              size="icon"
+                              className="w-7 h-7 bg-emerald-600 text-white hover:bg-emerald-700 shrink-0"
+                              onClick={() => {
+                                if (newUnitValue.trim()) {
+                                  if (!localUnits.includes(newUnitValue.trim())) {
+                                    setLocalUnits([...localUnits, newUnitValue.trim()]);
+                                  }
+                                  updateItem(item.id, "unit", newUnitValue.trim());
+                                }
+                                setShowAddUnitRowId(null);
+                                setNewUnitValue("");
+                              }}
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <Select
+                            value={localUnits.includes(item.unit) ? item.unit : "Bao"}
+                            onValueChange={(val) => {
+                              if (val === "__custom__") {
+                                setShowAddUnitRowId(item.id);
+                                setNewUnitValue("");
+                              } else {
+                                updateItem(item.id, "unit", val);
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-8 text-xs py-1 px-2.5">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {localUnits.map((u) => (
+                                <SelectItem key={u} value={u} className="text-xs">
+                                  {u}
+                                </SelectItem>
+                              ))}
+                              <SelectItem value="__custom__" className="text-xs text-blue-600 font-semibold hover:bg-blue-50/50">
+                                + Thêm đơn vị...
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={item.weight === 0 ? "" : item.weight}
+                          onChange={(e) => updateItem(item.id, "weight", Number(e.target.value) || 0)}
+                          className="h-8 text-xs py-1 px-2"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          value={item.shippingPrice === 0 ? "" : item.shippingPrice.toLocaleString("en-US")}
+                          onChange={(e) => updateItem(item.id, "shippingPrice", Number(e.target.value.replace(/[^\d]/g, "")) || 0)}
+                          className="h-8 text-xs py-1 px-2 text-right"
+                          required
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="0"
+                          value={!item.extraFee ? "" : item.extraFee.toLocaleString("en-US")}
+                          onChange={(e) => updateItem(item.id, "extraFee", Number(e.target.value.replace(/[^\d]/g, "")) || 0)}
+                          className="h-8 text-xs py-1 px-2 text-right"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right font-medium text-slate-800">
+                        {formatVND(item.quantity * item.shippingPrice + (item.extraFee || 0))}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => removeItem(item.id)}
+                          className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Summary Row matching Frame 15 */}
+            <div className="bg-slate-50/70 border-t border-slate-100 p-3.5 flex items-center justify-between text-xs text-slate-600 font-semibold">
+              <div>
+                <span>Số lượng: <strong className="text-slate-900">{items.map(it => `${it.quantity} ${it.unit}`).join(", ")}</strong></span>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <span className="text-slate-500 uppercase tracking-wider text-[10px]">Tổng thanh toán:</span>
+                <span className="text-lg font-bold text-primary">{formatVND(totalCost)}</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <Tabs defaultValue="timeline">
-          <TabsList>
-            <TabsTrigger value="timeline">Lộ trình</TabsTrigger>
-            <TabsTrigger value="images">Hình ảnh</TabsTrigger>
-            <TabsTrigger value="costs">Chi phí Vendor</TabsTrigger>
-          </TabsList>
+        {/* Attached Documents matching Frame 15 */}
+        <div className="space-y-3 pt-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Tài liệu đính kèm</h3>
+            <Button type="button" variant="outline" size="sm" className="h-8 text-xs">
+              <Upload className="w-3.5 h-3.5 mr-1.5 text-slate-400" /> Tải lên tài liệu
+            </Button>
+          </div>
+          
+          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
+            {order.images.map((src: string, idx: number) => (
+              <div 
+                key={idx} 
+                className="aspect-[4/3] rounded-lg overflow-hidden border border-slate-200 bg-slate-50 shadow-sm cursor-pointer group relative hover:border-primary transition-all duration-200"
+                onClick={() => handleOpenLightbox(idx)}
+              >
+                <img 
+                  src={src} 
+                  alt={`Tài liệu ${idx + 1}`} 
+                  className="w-full h-full object-cover group-hover:scale-105 transition-all duration-300" 
+                />
+                <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <span className="text-[10px] text-white font-bold bg-black/60 px-2 py-0.5 rounded-full">Xem</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
 
-          <TabsContent value="timeline" className="mt-4">
-            <Card className="p-6">
-              <h3 className="font-semibold text-slate-900 mb-5">Lộ trình vận chuyển</h3>
-              <div className="relative">
-                {order.timeline.map((step, idx) => (
-                  <div key={idx} className="flex gap-4 pb-6 last:pb-0 relative">
-                    {idx < order.timeline.length - 1 && (
-                      <div className={cn("absolute left-3 top-7 bottom-0 w-0.5", step.done ? "bg-primary" : "bg-slate-200")} />
-                    )}
-                    <div className="relative z-10 mt-0.5">
-                      {step.done ? (
-                        <CheckCircle2 className="w-6 h-6 text-primary fill-primary/10" />
-                      ) : (
-                        <Circle className="w-6 h-6 text-slate-300" />
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <div className={cn("font-medium", step.done ? "text-slate-900" : "text-slate-500")}>
-                        {step.label}
-                      </div>
-                      <div className="text-xs text-slate-500 mt-0.5">{step.location} · {step.date}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </TabsContent>
+        <div className="space-y-1.5 pt-1">
+          <Label htmlFor="note" className="text-xs font-semibold text-slate-700">Ghi chú</Label>
+          <Textarea 
+            id="note" 
+            placeholder="Ghi chú thêm về lô hàng (ví dụ: Hàng dễ vỡ, cần bọc chống sốc)..." 
+            value={note} 
+            onChange={(e) => setNote(e.target.value)} 
+            className="text-xs min-h-[60px]"
+          />
+        </div>
 
-          <TabsContent value="images" className="mt-4">
-            <Card className="p-6">
-              <h3 className="font-semibold text-slate-900 mb-4">Thư viện ảnh ({order.images.length})</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {order.images.map((src, i) => (
-                  <div key={i} className="aspect-[4/3] rounded-lg overflow-hidden bg-slate-100 group cursor-pointer">
-                    <img src={src} alt={`Ảnh ${i + 1}`} className="w-full h-full object-cover group-hover:scale-105 transition" />
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="costs" className="mt-4">
-            <Card className="p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold text-slate-900">Chi phí theo Vendor</h3>
-                <Button variant="outline" size="sm"><Plus className="w-4 h-4" /> Thêm chi phí</Button>
-              </div>
-              <div className="overflow-hidden rounded-lg border border-slate-200">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
-                    <tr>
-                      <th className="text-left px-4 py-3 font-medium">Loại</th>
-                      <th className="text-left px-4 py-3 font-medium">Vendor</th>
-                      <th className="text-right px-4 py-3 font-medium">Số tiền</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                    {order.costs.map((c) => (
-                      <tr key={c.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 text-slate-700">{c.type}</td>
-                        <td className="px-4 py-3 text-slate-900 font-medium">{c.vendor}</td>
-                        <td className="px-4 py-3 text-right text-slate-900">{formatVND(c.amount)}</td>
-                      </tr>
-                    ))}
-                    <tr className="bg-slate-50 font-semibold">
-                      <td className="px-4 py-3" colSpan={2}>Tổng cộng</td>
-                      <td className="px-4 py-3 text-right">{formatVND(totalCost)}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          </TabsContent>
-        </Tabs>
+        {/* Form actions */}
+        <div className="pt-4 border-t flex justify-end gap-3.5">
+          <Button 
+            type="button" 
+            variant="outline" 
+            onClick={() => navigate({ to: "/orders" })}
+            className="h-10 text-xs font-semibold px-5 text-slate-600 border-slate-200 hover:bg-slate-50"
+          >
+            Hủy
+          </Button>
+          <Button 
+            type="button" 
+            onClick={handleSave}
+            className="h-10 text-xs font-semibold bg-primary hover:bg-primary/95 text-white px-6 shadow-md"
+          >
+            Lưu thay đổi
+          </Button>
+        </div>
       </div>
+
+      {/* premium Receipts Lightbox Gallery matching Frame 16 */}
+      {lightboxOpen && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex flex-col justify-between items-center py-6 px-4 animate-in fade-in duration-300"
+          onClick={() => setLightboxOpen(false)}
+        >
+          {/* Top Actions */}
+          <div className="w-full max-w-5xl flex justify-end">
+            <button 
+              type="button"
+              className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 p-2.5 rounded-full transition-all shrink-0 cursor-pointer"
+              onClick={() => setLightboxOpen(false)}
+              title="Đóng"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Center Image and Nav Controls */}
+          <div className="w-full max-w-4xl flex items-center justify-between gap-4 flex-1">
+            {/* Left Nav */}
+            <button
+              type="button"
+              className="text-white/60 hover:text-white bg-black/40 hover:bg-black/60 p-3 rounded-full transition-all border border-white/10 shrink-0 cursor-pointer"
+              onClick={handlePrevPhoto}
+            >
+              <ChevronLeft className="w-8 h-8" />
+            </button>
+
+            {/* Receipt Image Content */}
+            <div 
+              className="max-h-[70vh] max-w-[90%] rounded-xl overflow-hidden shadow-2xl border border-white/10 bg-slate-900"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <img
+                src={order.images[currentPhotoIdx]}
+                alt={`Biên lai Receipt ${currentPhotoIdx + 1}`}
+                className="max-h-[70vh] w-auto max-w-full object-contain mx-auto animate-in zoom-in-95 duration-300 select-none"
+              />
+            </div>
+
+            {/* Right Nav */}
+            <button
+              type="button"
+              className="text-white/60 hover:text-white bg-black/40 hover:bg-black/60 p-3 rounded-full transition-all border border-white/10 shrink-0 cursor-pointer"
+              onClick={handleNextPhoto}
+            >
+              <ChevronRight className="w-8 h-8" />
+            </button>
+          </div>
+
+          {/* Bottom count display */}
+          <div className="text-white/80 font-bold bg-white/10 border border-white/10 rounded-full px-4.5 py-1.5 text-xs tracking-wide shadow-md animate-in slide-in-from-bottom duration-200">
+            {currentPhotoIdx + 1} trong {order.images.length} ảnh
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }

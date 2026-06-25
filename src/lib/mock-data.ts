@@ -1,17 +1,33 @@
-export type OrderStatus = "dang_ve" | "cho_giao" | "hoan_thanh" | "dang_van_chuyen";
+export type OrderStatus =
+  | "dang_ve"
+  | "dang_van_chuyen"
+  | "cho_giao"
+  | "hoan_thanh"
+  | "nhan_kho_tq"
+  | "xuat_kho_tq"
+  | "thong_quan"
+  | "van_chuyen_vn";
 
 export const statusLabel: Record<OrderStatus, string> = {
   dang_ve: "Đang về kho",
   dang_van_chuyen: "Đang vận chuyển",
   cho_giao: "Chờ giao",
-  hoan_thanh: "Hoàn thành",
+  hoan_thanh: "Đã hoàn thành",
+  nhan_kho_tq: "Nhận tại kho TQ",
+  xuat_kho_tq: "Xuất kho TQ",
+  thong_quan: "Thông quan biên giới",
+  van_chuyen_vn: "Vận chuyển nội địa VN",
 };
 
 export const statusColor: Record<OrderStatus, string> = {
-  dang_ve: "bg-blue-100 text-blue-700 border-blue-200",
-  dang_van_chuyen: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  cho_giao: "bg-orange-100 text-orange-700 border-orange-200",
-  hoan_thanh: "bg-green-100 text-green-700 border-green-200",
+  dang_ve: "bg-slate-100 text-slate-700 border-slate-200",
+  dang_van_chuyen: "bg-blue-100 text-blue-800 border-blue-200",
+  cho_giao: "bg-amber-100 text-amber-700 border-amber-200",
+  hoan_thanh: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  nhan_kho_tq: "bg-yellow-100 text-yellow-800 border-yellow-200",
+  xuat_kho_tq: "bg-orange-100 text-orange-800 border-orange-200",
+  thong_quan: "bg-red-100 text-red-800 border-red-200",
+  van_chuyen_vn: "bg-purple-100 text-purple-800 border-purple-200",
 };
 
 export interface VendorCost {
@@ -29,6 +45,17 @@ export interface TimelineStep {
   done: boolean;
 }
 
+export interface GoodsItem {
+  id: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  weight: number;      // kg
+  volume: number;      // m3
+  shippingPrice: number; // VND
+  extraFee?: number;   // VND - chi phí phát sinh
+}
+
 export interface Order {
   id: string;
   code: string;
@@ -37,146 +64,223 @@ export interface Order {
   status: OrderStatus;
   fee: number;
   createdAt: string;
+  updatedAt?: string;
   weight: string;
   origin: string;
   destination: string;
   images: string[];
   timeline: TimelineStep[];
   costs: VendorCost[];
+  items: GoodsItem[];
+  note?: string;
+  masterBill?: string;
 }
 
 const img = (seed: string) =>
   `https://picsum.photos/seed/${seed}/600/400`;
 
+// Real receipt images for premium attached files mockup
+const receiptImages = [
+  "https://images.unsplash.com/photo-1554415707-6e8cfc93fe23?auto=format&fit=crop&q=80&w=600",
+  "https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&q=80&w=600",
+  "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&q=80&w=600",
+  "https://images.unsplash.com/photo-1578575437130-527eed3abbec?auto=format&fit=crop&q=80&w=600"
+];
+
 export const orders: Order[] = [
   {
     id: "1",
-    code: "CTV-123456",
-    client: "Công ty TNHH An Phát",
+    code: "CRTO-2511025-01",
+    client: "NGUYEN TIEN MINH",
     clientId: "KH001",
     status: "dang_van_chuyen",
-    fee: 24500000,
-    createdAt: "2025-05-02",
-    weight: "1,250 kg",
+    fee: 150000000,
+    createdAt: "2026-07-21",
+    updatedAt: "",
+    weight: "1 PCL, 2 Bao, 120 Cuộn, 1 Kiện",
     origin: "Quảng Châu, TQ",
     destination: "Hà Nội, VN",
-    images: [img("p1"), img("p2"), img("p3"), img("p4")],
+    images: receiptImages,
+    note: "Hàng cồng kềnh, cần chú ý bốc xếp cẩn thận.",
+    masterBill: "GZ02",
+    items: [
+      { id: "1", name: "bỉm bỉm", quantity: 1, unit: "PCL", weight: 267.23, volume: 8, shippingPrice: 120000000 },
+      { id: "2", name: "bỉm bỉm", quantity: 2, unit: "Bao", weight: 2700, volume: 1.2, shippingPrice: 2000000 },
+      { id: "3", name: "bỉm bỉm", quantity: 120, unit: "Cuộn", weight: 10, volume: 0.5, shippingPrice: 12000 },
+      { id: "4", name: "bỉm bỉm", quantity: 1, unit: "Kiện", weight: 800, volume: 2.1, shippingPrice: 2400000 }
+    ],
     timeline: [
-      { label: "Nhận hàng tại kho TQ", location: "Quảng Châu", date: "02/05", done: true },
-      { label: "Xuất kho - vận chuyển nội địa TQ", location: "Nam Ninh", date: "03/05", done: true },
-      { label: "Thông quan biên giới", location: "Hữu Nghị Quan", date: "05/05", done: true },
-      { label: "Vận chuyển nội địa VN", location: "Lạng Sơn → Hà Nội", date: "06/05", done: false },
+      { label: "Nhận hàng tại kho TQ", location: "Quảng Châu", date: "21/07", done: true },
+      { label: "Xuất kho TQ", location: "Nam Ninh", date: "—", done: false },
+      { label: "Thông quan biên giới", location: "Hữu Nghị Quan", date: "—", done: false },
+      { label: "Vận chuyển nội địa VN", location: "Lạng Sơn → Hà Nội", date: "—", done: false },
       { label: "Giao hàng cho khách", location: "Hà Nội", date: "—", done: false },
     ],
     costs: [
-      { id: "c1", type: "Vendor vận chuyển TQ", vendor: "GZ Express", amount: 8500000 },
-      { id: "c2", type: "Vendor thông quan", vendor: "Hải quan Hữu Nghị", amount: 3200000 },
-      { id: "c3", type: "Nhà xe VN", vendor: "Vận tải Minh Long", amount: 4500000 },
-      { id: "c4", type: "Phí bốc xếp", vendor: "Đội bốc xếp Lạng Sơn", amount: 800000 },
+      { id: "c1", type: "Vendor vận chuyển TQ", vendor: "GZ Express", amount: 60000000 },
+      { id: "c2", type: "Vendor thông quan", vendor: "Hải quan Hữu Nghị", amount: 22500000 },
     ],
   },
   {
     id: "2",
-    code: "CTV-123457",
-    client: "Shop Mỹ Phẩm Linh Chi",
-    clientId: "KH002",
-    status: "hoan_thanh",
-    fee: 12800000,
-    createdAt: "2025-04-28",
-    weight: "420 kg",
-    origin: "Thâm Quyến, TQ",
-    destination: "TP. HCM, VN",
-    images: [img("q1"), img("q2"), img("q3")],
+    code: "CRTO-2511025-02",
+    client: "NGUYEN TIEN MINH",
+    clientId: "KH001",
+    status: "van_chuyen_vn",
+    fee: 36000000,
+    createdAt: "2026-07-21",
+    updatedAt: "",
+    weight: "1 Bao, 120 Cuộn",
+    origin: "Quảng Châu, TQ",
+    destination: "Hà Nội, VN",
+    images: [receiptImages[1], receiptImages[2]],
+    masterBill: "MBN-GZH-HN",
+    items: [
+      { id: "1", name: "Cát vệ sinh mèo", quantity: 1, unit: "Bao", weight: 20, volume: 0.1, shippingPrice: 20000000 },
+      { id: "2", name: "Bỉm em bé", quantity: 120, unit: "Cuộn", weight: 8, volume: 0.3, shippingPrice: 133333 }
+    ],
     timeline: [
-      { label: "Nhận hàng tại kho TQ", location: "Thâm Quyến", date: "28/04", done: true },
-      { label: "Xuất kho - vận chuyển nội địa TQ", location: "Bằng Tường", date: "29/04", done: true },
-      { label: "Thông quan biên giới", location: "Móng Cái", date: "01/05", done: true },
-      { label: "Vận chuyển nội địa VN", location: "Móng Cái → HCM", date: "03/05", done: true },
-      { label: "Giao hàng cho khách", location: "TP. HCM", date: "05/05", done: true },
+      { label: "Nhận hàng tại kho TQ", location: "Quảng Châu", date: "21/07", done: true },
+      { label: "Xuất kho TQ", location: "Nam Ninh", date: "22/07", done: true },
+      { label: "Thông quan biên giới", location: "Hữu Nghị Quan", date: "23/07", done: true },
+      { label: "Vận chuyển nội địa VN", location: "Lạng Sơn → Hà Nội", date: "24/07", done: true },
+      { label: "Giao hàng cho khách", location: "Hà Nội", date: "—", done: false },
     ],
     costs: [
-      { id: "c1", type: "Vendor vận chuyển TQ", vendor: "SZ Cargo", amount: 4800000 },
-      { id: "c2", type: "Vendor thông quan", vendor: "DV Móng Cái", amount: 1800000 },
-      { id: "c3", type: "Nhà xe VN", vendor: "Vận tải Phương Trang", amount: 3500000 },
+      { id: "c1", type: "Vendor vận chuyển TQ", vendor: "GZ Express", amount: 12000000 },
+      { id: "c2", type: "Nhà xe VN", vendor: "Vận tải Minh Long", amount: 5000000 },
     ],
   },
   {
     id: "3",
-    code: "CTV-123458",
-    client: "Công ty TNHH An Phát",
+    code: "CRTO-2511025-03",
+    client: "NGUYEN TIEN MINH",
     clientId: "KH001",
-    status: "cho_giao",
-    fee: 18200000,
-    createdAt: "2025-05-04",
-    weight: "880 kg",
-    origin: "Nghĩa Ô, TQ",
-    destination: "Hải Phòng, VN",
-    images: [img("r1"), img("r2")],
+    status: "thong_quan",
+    fee: 120000000,
+    createdAt: "2026-07-20",
+    updatedAt: "",
+    weight: "300 Cuộn",
+    origin: "Thâm Quyến, TQ",
+    destination: "TP. HCM, VN",
+    images: [receiptImages[0], receiptImages[3]],
+    items: [
+      { id: "1", name: "Sữa bột", quantity: 300, unit: "Cuộn", weight: 5, volume: 0.08, shippingPrice: 400000 }
+    ],
     timeline: [
-      { label: "Nhận hàng tại kho TQ", location: "Nghĩa Ô", date: "04/05", done: true },
-      { label: "Xuất kho - vận chuyển nội địa TQ", location: "Quảng Châu", date: "05/05", done: true },
-      { label: "Thông quan biên giới", location: "Hữu Nghị Quan", date: "07/05", done: true },
-      { label: "Vận chuyển nội địa VN", location: "Lạng Sơn → Hải Phòng", date: "08/05", done: true },
-      { label: "Giao hàng cho khách", location: "Hải Phòng", date: "—", done: false },
+      { label: "Nhận hàng tại kho TQ", location: "Thâm Quyến", date: "20/07", done: true },
+      { label: "Xuất kho TQ", location: "Bằng Tường", date: "21/07", done: true },
+      { label: "Thông quan biên giới", location: "Hữu Nghị Quan", date: "22/07", done: true },
+      { label: "Vận chuyển nội địa VN", location: "Lạng Sơn → HCM", date: "—", done: false },
     ],
     costs: [
-      { id: "c1", type: "Vendor vận chuyển TQ", vendor: "YW Logistics", amount: 6200000 },
-      { id: "c2", type: "Vendor thông quan", vendor: "Hải quan Hữu Nghị", amount: 2400000 },
+      { id: "c1", type: "Vendor vận chuyển TQ", vendor: "SZ Cargo", amount: 48000000 },
+      { id: "c2", type: "Vendor thông quan", vendor: "DV Móng Cái", amount: 18000000 },
     ],
   },
   {
     id: "4",
-    code: "CTV-123459",
-    client: "Điện Tử Phú Quý",
-    clientId: "KH003",
-    status: "dang_ve",
-    fee: 32500000,
-    createdAt: "2025-05-08",
-    weight: "2,100 kg",
-    origin: "Thượng Hải, TQ",
-    destination: "Đà Nẵng, VN",
-    images: [img("s1")],
+    code: "CRTO-2511025-04",
+    client: "NGUYEN THI HANH",
+    clientId: "KH002",
+    status: "dang_van_chuyen",
+    fee: 150000000,
+    createdAt: "2026-07-21",
+    updatedAt: "",
+    weight: "1 PCL, 2 Bao, 120 Cuộn, 1 Kiện",
+    origin: "Nghĩa Ô, TQ",
+    destination: "Hải Phòng, VN",
+    images: [receiptImages[2]],
+    items: [
+      { id: "1", name: "bỉm bỉm", quantity: 1, unit: "PCL", weight: 267.23, volume: 8, shippingPrice: 120000000 },
+      { id: "2", name: "bỉm bỉm", quantity: 2, unit: "Bao", weight: 2700, volume: 1.2, shippingPrice: 2000000 },
+      { id: "3", name: "bỉm bỉm", quantity: 120, unit: "Cuộn", weight: 10, volume: 0.5, shippingPrice: 12000 },
+      { id: "4", name: "bỉm bỉm", quantity: 1, unit: "Kiện", weight: 800, volume: 2.1, shippingPrice: 2400000 }
+    ],
     timeline: [
-      { label: "Nhận hàng tại kho TQ", location: "Thượng Hải", date: "08/05", done: true },
-      { label: "Xuất kho - vận chuyển nội địa TQ", location: "Quảng Châu", date: "—", done: false },
-      { label: "Thông quan biên giới", location: "Hữu Nghị Quan", date: "—", done: false },
-      { label: "Vận chuyển nội địa VN", location: "Lạng Sơn → Đà Nẵng", date: "—", done: false },
-      { label: "Giao hàng cho khách", location: "Đà Nẵng", date: "—", done: false },
+      { label: "Nhận hàng tại kho TQ", location: "Nghĩa Ô", date: "21/07", done: true },
+      { label: "Xuất kho TQ", location: "Quảng Châu", date: "—", done: false },
     ],
     costs: [
-      { id: "c1", type: "Vendor vận chuyển TQ", vendor: "SH Express", amount: 11000000 },
+      { id: "c1", type: "Vendor vận chuyển TQ", vendor: "YW Logistics", amount: 60000000 },
     ],
   },
   {
     id: "5",
-    code: "CTV-123460",
-    client: "Shop Mỹ Phẩm Linh Chi",
-    clientId: "KH002",
-    status: "hoan_thanh",
-    fee: 9600000,
-    createdAt: "2025-04-20",
-    weight: "320 kg",
+    code: "CRTO-2511025-05",
+    client: "NGUYEN TIEN MINH",
+    clientId: "KH001",
+    status: "nhan_kho_tq",
+    fee: 150000000,
+    createdAt: "2026-07-21",
+    updatedAt: "2026-07-21",
+    weight: "1 PCL, 2 Bao, 120 Cuộn, 1 Kiện",
     origin: "Quảng Châu, TQ",
-    destination: "TP. HCM, VN",
-    images: [img("t1"), img("t2")],
+    destination: "Hà Nội, VN",
+    images: receiptImages,
+    items: [
+      { id: "1", name: "bỉm bỉm", quantity: 1, unit: "PCL", weight: 267.23, volume: 8, shippingPrice: 120000000 },
+      { id: "2", name: "bỉm bỉm", quantity: 2, unit: "Bao", weight: 2700, volume: 1.2, shippingPrice: 2000000 },
+      { id: "3", name: "bỉm bỉm", quantity: 120, unit: "Cuộn", weight: 10, volume: 0.5, shippingPrice: 12000 },
+      { id: "4", name: "bỉm bỉm", quantity: 1, unit: "Kiện", weight: 800, volume: 2.1, shippingPrice: 2400000 }
+    ],
     timeline: [
-      { label: "Nhận hàng tại kho TQ", location: "Quảng Châu", date: "20/04", done: true },
-      { label: "Xuất kho - vận chuyển nội địa TQ", location: "Nam Ninh", date: "21/04", done: true },
-      { label: "Thông quan biên giới", location: "Hữu Nghị Quan", date: "22/04", done: true },
-      { label: "Vận chuyển nội địa VN", location: "Lạng Sơn → HCM", date: "24/04", done: true },
-      { label: "Giao hàng cho khách", location: "TP. HCM", date: "26/04", done: true },
+      { label: "Nhận hàng tại kho TQ", location: "Quảng Châu", date: "21/07", done: true },
     ],
-    costs: [
-      { id: "c1", type: "Vendor vận chuyển TQ", vendor: "GZ Express", amount: 3500000 },
-      { id: "c2", type: "Nhà xe VN", vendor: "Vận tải Phương Trang", amount: 2800000 },
-    ],
+    costs: [],
   },
+  {
+    id: "6",
+    code: "CRTO-2511025-06",
+    client: "NGUYEN TIEN MINH",
+    clientId: "KH001",
+    status: "hoan_thanh",
+    fee: 100000000,
+    createdAt: "2026-07-21",
+    updatedAt: "2026-07-21",
+    weight: "50 Cuộn, 2 Kiện",
+    origin: "Quảng Châu, TQ",
+    destination: "Hà Nội, VN",
+    images: [receiptImages[3]],
+    items: [
+      { id: "1", name: "Quần áo trẻ em", quantity: 50, unit: "Cuộn", weight: 20, volume: 0.4, shippingPrice: 1000000 },
+      { id: "2", name: "Sữa bột", quantity: 2, unit: "Kiện", weight: 50, volume: 0.2, shippingPrice: 25000000 }
+    ],
+    timeline: [
+      { label: "Nhận hàng tại kho TQ", location: "Quảng Châu", date: "21/07", done: true },
+      { label: "Xuất kho TQ", location: "Nam Ninh", date: "21/07", done: true },
+      { label: "Giao hàng cho khách", location: "Hà Nội", date: "21/07", done: true }
+    ],
+    costs: [],
+  },
+  {
+    id: "7",
+    code: "CRTO-2511025-07",
+    client: "NGUYEN TIEN MINH",
+    clientId: "KH001",
+    status: "dang_van_chuyen",
+    fee: 150000000,
+    createdAt: "2026-07-21",
+    updatedAt: "",
+    weight: "1 PCL, 2 Bao, 120 Cuộn, 1 Kiện",
+    origin: "Quảng Châu, TQ",
+    destination: "Hà Nội, VN",
+    images: receiptImages,
+    items: [
+      { id: "1", name: "bỉm bỉm", quantity: 1, unit: "PCL", weight: 267.23, volume: 8, shippingPrice: 120000000 },
+      { id: "2", name: "bỉm bỉm", quantity: 2, unit: "Bao", weight: 2700, volume: 1.2, shippingPrice: 2000000 },
+      { id: "3", name: "bỉm bỉm", quantity: 120, unit: "Cuộn", weight: 10, volume: 0.5, shippingPrice: 12000 },
+      { id: "4", name: "bỉm bỉm", quantity: 1, unit: "Kiện", weight: 800, volume: 2.1, shippingPrice: 2400000 }
+    ],
+    timeline: [],
+    costs: [],
+  }
 ];
 
 export const clients = [
-  { id: "KH001", name: "Công ty TNHH An Phát", debt: 24500000, overdue: 0 },
-  { id: "KH002", name: "Shop Mỹ Phẩm Linh Chi", debt: 0, overdue: 0 },
-  { id: "KH003", name: "Điện Tử Phú Quý", debt: 32500000, overdue: 32500000 },
+  { id: "KH001", name: "NGUYEN TIEN MINH", contact: "+84 987 654 321", debt: 245000000, overdue: 0 },
+  { id: "KH002", name: "NGUYEN THI HANH", contact: "+84 912 345 678", debt: 150000000, overdue: 0 },
+  { id: "KH003", name: "Điện Tử Phú Quý", contact: "+84 909 123 456", debt: 32500000, overdue: 32500000 },
 ];
 
 export const vendors = [

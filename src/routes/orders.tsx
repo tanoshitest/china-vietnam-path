@@ -1,5 +1,5 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, Link, useNavigate, useLocation, Outlet } from "@tanstack/react-router";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
@@ -16,7 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Search, Plus, Filter } from "lucide-react";
+import { Search, Plus, Filter, Trash2, Check, Calendar as CalendarIcon } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -24,7 +24,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { orders, statusLabel, statusColor, formatVND, type OrderStatus } from "@/lib/mock-data";
+import {
+  orders as mockOrders,
+  statusLabel,
+  statusColor,
+  formatVND,
+  clients as mockClients,
+  type OrderStatus,
+} from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/orders")({
@@ -32,31 +39,315 @@ export const Route = createFileRoute("/orders")({
   head: () => ({ meta: [{ title: "Quản lý Vận đơn — Quocviet JR" }] }),
 });
 
+interface GoodsItem {
+  id: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  weight: number;
+  volume: number;
+  shippingPrice: number;
+}
+
+// Helpers for localStorage persistence
+const getStoredOrders = () => {
+  if (typeof window === "undefined") return mockOrders;
+  const stored = localStorage.getItem("viet_thao_orders");
+  if (stored) {
+    try {
+      return JSON.parse(stored);
+    } catch (e) {
+      return mockOrders;
+    }
+  }
+  localStorage.setItem("viet_thao_orders", JSON.stringify(mockOrders));
+  return mockOrders;
+};
+
+const saveStoredOrders = (newOrders: any[]) => {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("viet_thao_orders", JSON.stringify(newOrders));
+};
+
 function OrdersPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [allOrders, setAllOrders] = useState<any[]>([]);
+
+  // If navigating to detail route, render Outlet directly
+  if (location.pathname !== "/orders" && location.pathname !== "/orders/") {
+    return <Outlet />;
+  }
+
+  // Load from localStorage on mount
+  useEffect(() => {
+    setAllOrders(getStoredOrders());
+  }, []);
+
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>("all");
+  
+  // Date filters matching Mockup default: "01/01/2026 - 30/07/2026"
+  const [startDate, setStartDate] = useState("2026-01-01");
+  const [endDate, setEndDate] = useState("2026-07-30");
+
+  // Selection states
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ client: "", origin: "Quảng Châu", destination: "Hà Nội", weight: "", note: "" });
 
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.client || !form.weight) {
-      toast.error("Vui lòng nhập đầy đủ thông tin");
-      return;
+  // Bulk dialog states
+  const [openStatusModal, setOpenStatusModal] = useState(false);
+  const [openDateModal, setOpenDateModal] = useState(false);
+  const [bulkStatusValue, setBulkStatusValue] = useState<OrderStatus>("dang_van_chuyen");
+  const [bulkDateValue, setBulkDateValue] = useState(new Date().toISOString().split("T")[0]);
+
+  // Form states for Create Modal
+  const [receivedDate, setReceivedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [masterBill, setMasterBill] = useState("");
+  const [customCode, setCustomCode] = useState("");
+  const [selectedClient, setSelectedClient] = useState("");
+  const [origin, setOrigin] = useState("Quảng Châu");
+  const [destination, setDestination] = useState("Hà Nội");
+  const [note, setNote] = useState("");
+
+  // Local lists for autocomplete / selection
+  const [localClients, setLocalClients] = useState<any[]>(() => {
+    if (typeof window === "undefined") return mockClients;
+    const stored = localStorage.getItem("viet_thao_clients");
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch (e) {
+        return mockClients;
+      }
     }
-    const code = "CTV-" + Math.floor(100000 + Math.random() * 900000);
-    toast.success(`Đã tạo vận đơn ${code}`, { description: `Khách hàng: ${form.client}` });
-    setOpen(false);
-    setForm({ client: "", origin: "Quảng Châu", destination: "Hà Nội", weight: "", note: "" });
-  };
+    return mockClients;
+  });
+  const [localUnits, setLocalUnits] = useState(["Bao", "Hộp", "Thùng", "Kg", "Cái"]);
+  const [newClientName, setNewClientName] = useState("");
+  const [isAddingClient, setIsAddingClient] = useState(false);
 
-  const filtered = orders.filter((o) => {
+  // Goods item dynamic list
+  const [items, setItems] = useState<GoodsItem[]>([
+    { id: "1", name: "Cát vệ sinh mèo", quantity: 1, unit: "Bao", weight: 20, volume: 0.1, shippingPrice: 1500000 },
+    { id: "2", name: "Bỉm em bé", quantity: 2, unit: "Hộp", weight: 5, volume: 0.05, shippingPrice: 2150000 }
+  ]);
+
+  const [showAddUnitRowId, setShowAddUnitRowId] = useState<string | null>(null);
+  const [newUnitValue, setNewUnitValue] = useState("");
+
+  // Filters logic
+  const filtered = allOrders.filter((o) => {
     const matchQ =
       o.code.toLowerCase().includes(q.toLowerCase()) ||
       o.client.toLowerCase().includes(q.toLowerCase());
+    
     const matchS = status === "all" || o.status === status;
-    return matchQ && matchS;
+
+    // Date match
+    let matchDate = true;
+    if (o.createdAt) {
+      if (startDate && o.createdAt < startDate) matchDate = false;
+      if (endDate && o.createdAt > endDate) matchDate = false;
+    }
+
+    return matchQ && matchS && matchDate;
   });
+
+  // Checkbox handlers
+  const handleToggleRow = (id: string) => {
+    if (selectedIds.includes(id)) {
+      setSelectedIds(selectedIds.filter((item) => item !== id));
+    } else {
+      setSelectedIds([...selectedIds, id]);
+    }
+  };
+
+  const handleToggleAll = () => {
+    if (selectedIds.length === filtered.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(filtered.map((o) => o.id));
+    }
+  };
+
+  // Bulk Actions submissions
+  const handleBulkStatusUpdate = () => {
+    if (selectedIds.length === 0) return;
+    
+    const updated = allOrders.map((o) => {
+      if (selectedIds.includes(o.id)) {
+        return { 
+          ...o, 
+          status: bulkStatusValue,
+          updatedAt: new Date().toISOString().split("T")[0] // default update date is today
+        };
+      }
+      return o;
+    });
+
+    setAllOrders(updated);
+    saveStoredOrders(updated);
+    toast.success(`Đã cập nhật trạng thái hàng loạt cho ${selectedIds.length} vận đơn`, {
+      description: `Trạng thái mới: ${statusLabel[bulkStatusValue]}`
+    });
+    setSelectedIds([]);
+    setOpenStatusModal(false);
+  };
+
+  const handleBulkDateUpdate = () => {
+    if (selectedIds.length === 0) return;
+
+    const formattedDate = bulkDateValue.split("-").reverse().join("/"); // formatted display string e.g. "21/07/2026" or raw date "2026-07-21"
+    
+    const updated = allOrders.map((o) => {
+      if (selectedIds.includes(o.id)) {
+        return { 
+          ...o, 
+          updatedAt: bulkDateValue
+        };
+      }
+      return o;
+    });
+
+    setAllOrders(updated);
+    saveStoredOrders(updated);
+    toast.success(`Đã cập nhật Ngày cập nhật hàng loạt cho ${selectedIds.length} vận đơn`, {
+      description: `Ngày mới: ${bulkDateValue.split("-").reverse().join("/")}`
+    });
+    setSelectedIds([]);
+    setOpenDateModal(false);
+  };
+
+  // Client add handler
+  const handleAddClient = () => {
+    if (!newClientName.trim()) {
+      toast.error("Tên khách hàng không được để trống");
+      return;
+    }
+    const newId = `KH00${localClients.length + 1}`;
+    const newC = { id: newId, name: newClientName.trim(), debt: 0, overdue: 0 };
+    const updated = [...localClients, newC];
+    setLocalClients(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("viet_thao_clients", JSON.stringify(updated));
+    }
+    setSelectedClient(newC.name);
+    setNewClientName("");
+    setIsAddingClient(false);
+    toast.success(`Đã thêm khách hàng mới: ${newC.name}`);
+  };
+
+  const addItem = () => {
+    const newId = Math.random().toString(36).substring(2, 9);
+    setItems([...items, { id: newId, name: "", quantity: 1, unit: "Bao", weight: 0, volume: 0, shippingPrice: 0 }]);
+  };
+
+  const removeItem = (id: string) => {
+    if (items.length === 1) {
+      toast.error("Vui lòng giữ lại ít nhất 1 hàng hoá");
+      return;
+    }
+    setItems(items.filter((item) => item.id !== id));
+  };
+
+  const updateItem = (id: string, field: keyof GoodsItem, value: any) => {
+    setItems(items.map((item) => {
+      if (item.id === id) {
+        return { ...item, [field]: value };
+      }
+      return item;
+    }));
+  };
+
+  // Calculations
+  const totalUniqueItems = items.length;
+  const totalUnits = items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+  const totalWeight = items.reduce((sum, item) => sum + (Number(item.weight) || 0) * (Number(item.quantity) || 1), 0);
+  const totalVolume = items.reduce((sum, item) => sum + (Number(item.volume) || 0) * (Number(item.quantity) || 1), 0);
+  const totalCost = items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.shippingPrice) || 0), 0);
+
+  const resetForm = () => {
+    setReceivedDate(new Date().toISOString().split("T")[0]);
+    setMasterBill("");
+    setCustomCode("");
+    setSelectedClient("");
+    setOrigin("Quảng Châu");
+    setDestination("Hà Nội");
+    setNote("");
+    setItems([
+      { id: "1", name: "Cát vệ sinh mèo", quantity: 1, unit: "Bao", weight: 20, volume: 0.1, shippingPrice: 1500000 },
+      { id: "2", name: "Bỉm em bé", quantity: 2, unit: "Hộp", weight: 5, volume: 0.05, shippingPrice: 2150000 }
+    ]);
+  };
+
+  const handleOpenChange = (isOpen: boolean) => {
+    setOpen(isOpen);
+    if (isOpen) {
+      setCustomCode("CRTO-" + Math.floor(1000000 + Math.random() * 9000000) + "-01");
+      if (localClients.length > 0 && !selectedClient) {
+        setSelectedClient(localClients[0].name);
+      }
+    } else {
+      resetForm();
+    }
+  };
+
+  const submit = (e: React.FormEvent, isDraft = false) => {
+    e.preventDefault();
+    if (!selectedClient) {
+      toast.error("Vui lòng chọn khách hàng");
+      return;
+    }
+
+    const code = customCode.trim() || ("CRTO-" + Math.floor(1000000 + Math.random() * 9000000) + "-01");
+
+    // Dynamic weight formatting
+    const weightDescs = items.map(it => `${it.quantity} ${it.unit}`).join(", ");
+    
+    // Create new order object
+    const newOrder = {
+      id: String(allOrders.length + 1),
+      code,
+      client: selectedClient,
+      clientId: localClients.find(c => c.name === selectedClient)?.id || "KH999",
+      status: (isDraft ? "nhan_kho_tq" : "dang_van_chuyen") as OrderStatus,
+      fee: totalCost,
+      createdAt: receivedDate,
+      updatedAt: "",
+      weight: weightDescs || `${totalWeight} kg`,
+      origin,
+      destination,
+      images: [
+        "https://images.unsplash.com/photo-1554415707-6e8cfc93fe23?auto=format&fit=crop&q=80&w=600",
+        "https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&q=80&w=600"
+      ],
+      timeline: [
+        { label: "Nhận hàng tại kho TQ", location: origin, date: receivedDate.split("-").reverse().slice(0, 2).join("/"), done: true },
+        { label: "Xuất kho TQ", location: "Nam Ninh", date: "—", done: false },
+        { label: "Thông quan biên giới", location: "Hữu Nghị Quan", date: "—", done: false },
+        { label: "Vận chuyển nội địa VN", location: "Lạng Sơn → Hà Nội", date: "—", done: false },
+        { label: "Giao hàng cho khách", location: destination, date: "—", done: false },
+      ],
+      costs: [
+        { id: "c1", type: "Vendor vận chuyển TQ" as const, vendor: "GZ Express", amount: totalCost * 0.4 },
+        { id: "c2", type: "Vendor thông quan" as const, vendor: "Hải quan Hữu Nghị", amount: totalCost * 0.15 },
+      ],
+      items,
+      note,
+      masterBill
+    };
+
+    const newOrdersList = [newOrder, ...allOrders];
+    setAllOrders(newOrdersList);
+    saveStoredOrders(newOrdersList);
+    
+    toast.success(isDraft ? `Đã lưu nháp vận đơn ${code}` : `Đã tạo thành công vận đơn ${code}`, {
+      description: `Khách hàng: ${selectedClient} - Cước phí: ${formatVND(totalCost)}`
+    });
+    setOpen(false);
+    resetForm();
+  };
 
   return (
     <AppLayout>
@@ -66,116 +357,657 @@ function OrdersPage() {
             <h2 className="text-xl font-semibold text-slate-900">Quản lý Vận đơn</h2>
             <p className="text-sm text-slate-500">Theo dõi toàn bộ đơn hàng tuyến TQ – VN</p>
           </div>
-          <Dialog open={open} onOpenChange={setOpen}>
+          
+          <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogTrigger asChild>
-              <Button>
-                <Plus className="w-4 h-4" /> Tạo vận đơn
+              <Button className="bg-primary hover:bg-primary/95 text-white transition-all shadow-sm duration-200">
+                <Plus className="w-4 h-4 mr-1.5" /> Tạo vận đơn
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-lg">
-              <DialogHeader>
-                <DialogTitle>Tạo vận đơn mới</DialogTitle>
-                <DialogDescription>Nhập thông tin lô hàng tuyến TQ – VN</DialogDescription>
+            <DialogContent className="sm:max-w-5xl max-h-[90vh] flex flex-col p-6 overflow-hidden">
+              <DialogHeader className="pb-4 border-b">
+                <DialogTitle className="text-xl font-semibold text-slate-900">Tạo vận đơn mới</DialogTitle>
+                <DialogDescription>Nhập thông tin lô hàng và chi tiết các mặt hàng tuyến TQ – VN</DialogDescription>
               </DialogHeader>
-              <form onSubmit={submit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="client">Khách hàng</Label>
-                  <Input id="client" placeholder="VD: Công ty TNHH ABC" value={form.client} onChange={(e) => setForm({ ...form, client: e.target.value })} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label htmlFor="origin">Điểm đi</Label>
-                    <Input id="origin" value={form.origin} onChange={(e) => setForm({ ...form, origin: e.target.value })} />
+              
+              <form onSubmit={(e) => submit(e, false)} className="flex-1 overflow-hidden flex flex-col">
+                <div className="flex-1 overflow-y-auto pr-1 py-4 space-y-5 text-left">
+                  {/* General Info Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="receivedDate" className="text-xs font-semibold text-slate-700">Ngày nhận hàng <span className="text-red-500">*</span></Label>
+                      <Input 
+                        id="receivedDate" 
+                        type="date"
+                        value={receivedDate} 
+                        onChange={(e) => setReceivedDate(e.target.value)} 
+                        className="h-9 text-sm"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="masterBill" className="text-xs font-semibold text-slate-700">Biển xe/vận đơn tổng</Label>
+                      <Input 
+                        id="masterBill" 
+                        placeholder="VD: MBN-GZH-HN" 
+                        value={masterBill} 
+                        onChange={(e) => setMasterBill(e.target.value)} 
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="customCode" className="text-xs font-semibold text-slate-700">Mã vận đơn</Label>
+                      <Input 
+                        id="customCode" 
+                        placeholder="Tự động tạo..." 
+                        value={customCode} 
+                        onChange={(e) => setCustomCode(e.target.value)} 
+                        className="h-9 text-sm font-mono text-primary font-bold"
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="destination">Điểm đến</Label>
-                    <Input id="destination" value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} />
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Client Select / Quick Add */}
+                    <div className="space-y-1.5">
+                      <Label className="text-xs font-semibold text-slate-700">Khách hàng <span className="text-red-500">*</span></Label>
+                      {isAddingClient ? (
+                        <div className="flex gap-1.5">
+                          <Input
+                            placeholder="Tên khách mới..."
+                            value={newClientName}
+                            onChange={(e) => setNewClientName(e.target.value)}
+                            className="h-9 text-sm flex-1"
+                            autoFocus
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                handleAddClient();
+                              }
+                            }}
+                          />
+                          <Button 
+                            type="button" 
+                            size="icon" 
+                            onClick={handleAddClient} 
+                            className="h-9 w-9 bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
+                          >
+                            <Check className="w-4 h-4" />
+                          </Button>
+                          <Button 
+                            type="button" 
+                            variant="ghost" 
+                            onClick={() => { setIsAddingClient(false); setNewClientName(""); }}
+                            className="h-9 px-2 text-xs shrink-0 text-slate-500 hover:bg-slate-100"
+                          >
+                            Hủy
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex gap-1.5">
+                          <Select value={selectedClient} onValueChange={setSelectedClient}>
+                            <SelectTrigger className="h-9 text-sm flex-1">
+                              <SelectValue placeholder="Chọn khách hàng..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {localClients.map((c) => (
+                                <SelectItem key={c.id} value={c.name} className="text-sm">
+                                  {c.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="outline"
+                            className="h-9 w-9 border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 shrink-0"
+                            onClick={() => setIsAddingClient(true)}
+                            title="Thêm khách hàng mới"
+                          >
+                            <Plus className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="origin" className="text-xs font-semibold text-slate-700">Khách xuất (Điểm đi)</Label>
+                      <Input 
+                        id="origin" 
+                        value={origin} 
+                        onChange={(e) => setOrigin(e.target.value)} 
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    
+                    <div className="space-y-1.5">
+                      <Label htmlFor="destination" className="text-xs font-semibold text-slate-700">Khách đến (Điểm đến)</Label>
+                      <Input 
+                        id="destination" 
+                        value={destination} 
+                        onChange={(e) => setDestination(e.target.value)} 
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Goods Item Table Section */}
+                  <div className="space-y-2 pt-2">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Danh sách hàng hóa</h3>
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        size="sm"
+                        onClick={addItem}
+                        className="h-8 border-dashed border-blue-200 text-blue-600 hover:bg-blue-50 font-medium"
+                      >
+                        <Plus className="w-3.5 h-3.5 mr-1" /> Thêm hàng hóa
+                      </Button>
+                    </div>
+
+                    <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs text-left border-collapse">
+                          <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                            <tr>
+                              <th className="px-3 py-2.5 w-[30%]">Hàng hoá <span className="text-red-500">*</span></th>
+                              <th className="px-3 py-2.5 w-[10%] text-center">Số lượng</th>
+                              <th className="px-3 py-2.5 w-[15%]">Đơn vị</th>
+                              <th className="px-3 py-2.5 w-[12%]">K.Lượng (kg)</th>
+                              <th className="px-3 py-2.5 w-[12%]">Thể tích (m³)</th>
+                              <th className="px-3 py-2.5 w-[16%]">Giá cước (VND)</th>
+                              <th className="px-3 py-2.5 text-right w-[16%]">Thành tiền</th>
+                              <th className="px-3 py-2.5 text-center w-[8%]">Xóa</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {items.map((item) => (
+                              <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="px-3 py-2">
+                                  <Input 
+                                    value={item.name} 
+                                    onChange={(e) => updateItem(item.id, "name", e.target.value)} 
+                                    placeholder="Nhập tên hàng hoá..."
+                                    className="h-8 text-xs py-1 px-2.5"
+                                    required
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <Input 
+                                    type="number"
+                                    min="1"
+                                    value={item.quantity === 0 ? "" : item.quantity} 
+                                    onChange={(e) => updateItem(item.id, "quantity", Number(e.target.value) || 0)} 
+                                    className="h-8 text-xs py-1 px-2 text-center"
+                                    required
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  {showAddUnitRowId === item.id ? (
+                                    <div className="flex gap-1 items-center">
+                                      <Input
+                                        placeholder="Tên đơn vị..."
+                                        value={newUnitValue}
+                                        onChange={(e) => setNewUnitValue(e.target.value)}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") {
+                                            e.preventDefault();
+                                            if (newUnitValue.trim()) {
+                                              if (!localUnits.includes(newUnitValue.trim())) {
+                                                setLocalUnits([...localUnits, newUnitValue.trim()]);
+                                              }
+                                              updateItem(item.id, "unit", newUnitValue.trim());
+                                            }
+                                            setShowAddUnitRowId(null);
+                                            setNewUnitValue("");
+                                          }
+                                        }}
+                                        className="h-8 py-1 px-1.5 text-xs flex-1 min-w-[60px]"
+                                        autoFocus
+                                      />
+                                      <Button
+                                        type="button"
+                                        size="icon"
+                                        className="w-7 h-7 bg-emerald-600 text-white hover:bg-emerald-700 shrink-0"
+                                        onClick={() => {
+                                          if (newUnitValue.trim()) {
+                                            if (!localUnits.includes(newUnitValue.trim())) {
+                                              setLocalUnits([...localUnits, newUnitValue.trim()]);
+                                            }
+                                            updateItem(item.id, "unit", newUnitValue.trim());
+                                          }
+                                          setShowAddUnitRowId(null);
+                                          setNewUnitValue("");
+                                        }}
+                                      >
+                                        <Check className="w-3.5 h-3.5" />
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                    <Select
+                                      value={localUnits.includes(item.unit) ? item.unit : "Bao"}
+                                      onValueChange={(val) => {
+                                        if (val === "__custom__") {
+                                          setShowAddUnitRowId(item.id);
+                                          setNewUnitValue("");
+                                        } else {
+                                          updateItem(item.id, "unit", val);
+                                        }
+                                      }}
+                                    >
+                                      <SelectTrigger className="h-8 text-xs py-1 px-2.5">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {localUnits.map((u) => (
+                                          <SelectItem key={u} value={u} className="text-xs">
+                                            {u}
+                                          </SelectItem>
+                                        ))}
+                                        <SelectItem value="__custom__" className="text-xs text-blue-600 font-semibold hover:bg-blue-50/50">
+                                          + Thêm đơn vị...
+                                        </SelectItem>
+                                      </SelectContent>
+                                    </Select>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <Input 
+                                    type="number"
+                                    min="0"
+                                    step="0.1"
+                                    value={item.weight === 0 ? "" : item.weight} 
+                                    onChange={(e) => updateItem(item.id, "weight", Number(e.target.value) || 0)} 
+                                    className="h-8 text-xs py-1 px-2"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <Input 
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    value={item.volume === 0 ? "" : item.volume} 
+                                    onChange={(e) => updateItem(item.id, "volume", Number(e.target.value) || 0)} 
+                                    className="h-8 text-xs py-1 px-2"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">
+                                  <Input 
+                                    type="number"
+                                    min="0"
+                                    step="1000"
+                                    value={item.shippingPrice === 0 ? "" : item.shippingPrice} 
+                                    onChange={(e) => updateItem(item.id, "shippingPrice", Number(e.target.value) || 0)} 
+                                    className="h-8 text-xs py-1 px-2"
+                                    required
+                                  />
+                                </td>
+                                <td className="px-3 py-2 text-right font-medium text-slate-800">
+                                  {formatVND(item.quantity * item.shippingPrice)}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <Button 
+                                    type="button" 
+                                    size="icon" 
+                                    variant="ghost" 
+                                    onClick={() => removeItem(item.id)}
+                                    className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </Button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Summary Row */}
+                      <div className="bg-slate-50/70 border-t border-slate-100 p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-slate-600 font-medium">
+                        <div className="flex flex-wrap gap-x-4 gap-y-1">
+                          <span>Tổng cộng: <strong className="text-slate-900">{totalUniqueItems}</strong> hàng hoá</span>
+                          <span className="text-slate-300">|</span>
+                          <span><strong className="text-slate-900">{totalUnits}</strong> đơn vị</span>
+                          <span className="text-slate-300">|</span>
+                          <span>Khối lượng: <strong className="text-slate-900">{totalWeight.toLocaleString("vi-VN")}</strong> kg</span>
+                          <span className="text-slate-300">|</span>
+                          <span>Thể tích: <strong className="text-slate-900">{totalVolume.toLocaleString("vi-VN")}</strong> m³</span>
+                        </div>
+                        
+                        <div className="flex items-center gap-2 mt-2 sm:mt-0 ml-auto sm:ml-0">
+                          <span className="text-slate-500 uppercase tracking-wider text-[10px]">Tổng thanh toán:</span>
+                          <span className="text-lg font-bold text-primary">{formatVND(totalCost)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 pt-1">
+                    <Label htmlFor="note" className="text-xs font-semibold text-slate-700">Ghi chú</Label>
+                    <Textarea 
+                      id="note" 
+                      placeholder="Ghi chú thêm về lô hàng (ví dụ: Hàng dễ vỡ, cần bọc chống sốc)..." 
+                      value={note} 
+                      onChange={(e) => setNote(e.target.value)} 
+                      className="text-xs min-h-[60px]"
+                    />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="weight">Khối lượng (kg)</Label>
-                  <Input id="weight" type="number" placeholder="VD: 250" value={form.weight} onChange={(e) => setForm({ ...form, weight: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="note">Ghi chú</Label>
-                  <Textarea id="note" placeholder="Hàng dễ vỡ, cần đóng gói cẩn thận..." value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
-                </div>
-                <DialogFooter>
-                  <Button type="button" variant="outline" onClick={() => setOpen(false)}>Hủy</Button>
-                  <Button type="submit">Tạo vận đơn</Button>
+
+                <DialogFooter className="pt-4 border-t gap-2 flex items-center justify-end">
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={() => setOpen(false)}
+                    className="h-9 text-xs font-semibold text-slate-700 px-4 hover:bg-slate-50"
+                  >
+                    Hủy
+                  </Button>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    onClick={(e) => submit(e, true)}
+                    className="h-9 text-xs font-semibold border-slate-200 text-slate-700 px-4 hover:bg-slate-50"
+                  >
+                    Lưu nháp
+                  </Button>
+                  <Button 
+                    type="submit"
+                    className="h-9 text-xs font-semibold bg-primary hover:bg-primary/95 text-white px-5 shadow-sm"
+                  >
+                    Tạo vận đơn
+                  </Button>
                 </DialogFooter>
               </form>
             </DialogContent>
           </Dialog>
         </div>
 
-        <Card className="p-4">
+        {/* Filters and Actions Block */}
+        <Card className="p-4 space-y-4">
           <div className="flex flex-col md:flex-row gap-3">
+            {/* Search Input */}
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input
-                placeholder="Tìm theo mã vận đơn hoặc khách hàng..."
+                placeholder="Tìm theo tên khách hàng hoặc mã vận đơn..."
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                className="pl-9"
+                className="pl-9 text-sm h-10"
               />
             </div>
+
+            {/* Date range filter matching Frame 9: "01/01/2026 - 30/07/2026" */}
+            <div className="flex items-center gap-2 border rounded-lg px-3 py-1.5 bg-white text-xs text-slate-600 shadow-sm md:w-[280px] shrink-0 border-slate-200 h-10">
+              <CalendarIcon className="w-4 h-4 text-slate-400" />
+              <div className="flex items-center gap-1.5 flex-1 justify-between">
+                <input 
+                  type="date" 
+                  value={startDate} 
+                  onChange={(e) => setStartDate(e.target.value)} 
+                  className="bg-transparent border-none p-0 outline-none text-slate-700 select-none text-[11px] w-[85px] cursor-pointer"
+                />
+                <span className="text-slate-300 font-light">to</span>
+                <input 
+                  type="date" 
+                  value={endDate} 
+                  onChange={(e) => setEndDate(e.target.value)} 
+                  className="bg-transparent border-none p-0 outline-none text-slate-700 select-none text-[11px] w-[85px] cursor-pointer"
+                />
+              </div>
+            </div>
+
+            {/* Status select filter */}
             <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger className="md:w-56">
-                <Filter className="w-4 h-4" />
+              <SelectTrigger className="md:w-[200px] h-10">
+                <Filter className="w-3.5 h-3.5 text-slate-400 mr-1.5" />
                 <SelectValue placeholder="Trạng thái" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tất cả trạng thái</SelectItem>
                 <SelectItem value="dang_ve">Đang về kho</SelectItem>
+                <SelectItem value="nhan_kho_tq">Nhận tại kho TQ</SelectItem>
+                <SelectItem value="xuat_kho_tq">Xuất kho TQ</SelectItem>
+                <SelectItem value="thong_quan">Thông quan biên giới</SelectItem>
+                <SelectItem value="van_chuyen_vn">Vận chuyển nội địa VN</SelectItem>
                 <SelectItem value="dang_van_chuyen">Đang vận chuyển</SelectItem>
                 <SelectItem value="cho_giao">Chờ giao</SelectItem>
-                <SelectItem value="hoan_thanh">Hoàn thành</SelectItem>
+                <SelectItem value="hoan_thanh">Đã hoàn thành</SelectItem>
               </SelectContent>
             </Select>
           </div>
+
+          {/* Bulk Action Trigger Bar matching Frame 9 / Frame 12 */}
+          {selectedIds.length > 0 && (
+            <div className="bg-blue-50/70 border border-blue-100 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-200">
+              <div className="flex items-center gap-2 text-xs text-blue-700">
+                <span className="font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                  Đang chọn {selectedIds.length}
+                </span>
+                <span>vận đơn được chọn để thay đổi</span>
+              </div>
+              <div className="flex gap-2 items-center">
+                {/* Dropdown "Thực hiện hàng loạt" */}
+                <Select
+                  value=""
+                  onValueChange={(val) => {
+                    if (val === "status") setOpenStatusModal(true);
+                    if (val === "date") setOpenDateModal(true);
+                  }}
+                >
+                  <SelectTrigger className="w-[180px] bg-white h-8 text-xs font-semibold text-blue-700 border-blue-200 hover:bg-blue-50">
+                    <SelectValue placeholder="Thực hiện hàng loạt" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="status" className="text-xs font-medium cursor-pointer">
+                      Thay đổi trạng thái
+                    </SelectItem>
+                    <SelectItem value="date" className="text-xs font-medium cursor-pointer">
+                      Ngày cập nhật
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                
+                <Button 
+                  type="button" 
+                  variant="ghost" 
+                  onClick={() => setSelectedIds([])} 
+                  className="h-8 text-xs text-slate-500 hover:text-slate-700"
+                >
+                  Bỏ chọn
+                </Button>
+              </div>
+            </div>
+          )}
         </Card>
 
-        <Card className="overflow-hidden p-0">
+        {/* Orders Table Card — sticky header, only the rows scroll (~7 visible) */}
+        <Card className="overflow-hidden p-0 shadow-sm border-slate-200">
+          <div className="overflow-y-auto max-h-[440px]">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
+            <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold border-b border-slate-200 sticky top-0 z-10">
               <tr>
-                <th className="text-left px-4 py-3 font-medium">Mã vận đơn</th>
-                <th className="text-left px-4 py-3 font-medium">Khách hàng</th>
-                <th className="text-left px-4 py-3 font-medium">Lộ trình</th>
-                <th className="text-left px-4 py-3 font-medium">Trạng thái</th>
-                <th className="text-right px-4 py-3 font-medium">Cước phí</th>
-                <th className="text-left px-4 py-3 font-medium">Ngày tạo</th>
+                <th className="px-4 py-3 text-center w-[5%]">
+                  <input 
+                    type="checkbox"
+                    checked={filtered.length > 0 && selectedIds.length === filtered.length}
+                    onChange={handleToggleAll}
+                    className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+                  />
+                </th>
+                <th className="text-left px-4 py-3 font-medium w-[15%]">Mã vận đơn</th>
+                <th className="text-left px-4 py-3 font-medium w-[20%]">Khách hàng</th>
+                <th className="text-left px-4 py-3 font-medium w-[22%]">Lộ trình / Chi tiết</th>
+                <th className="text-right px-4 py-3 font-medium w-[13%]">Cước phí</th>
+                <th className="text-left px-4 py-3 font-medium w-[10%]">Ngày tạo</th>
+                <th className="text-left px-4 py-3 font-medium w-[10%]">Ngày cập nhật</th>
+                <th className="text-left px-4 py-3 font-medium w-[13%]">Trạng thái</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200">
+            <tbody className="divide-y divide-slate-100">
               {filtered.map((o) => (
-                <tr key={o.id} className="hover:bg-slate-50 cursor-pointer">
-                  <td className="px-4 py-3">
-                    <Link to="/orders/$id" params={{ id: o.id }} className="font-medium text-primary hover:underline">
-                      {o.code}
-                    </Link>
+                <tr 
+                  key={o.id} 
+                  className={cn(
+                    "hover:bg-slate-50/50 transition-colors cursor-pointer",
+                    selectedIds.includes(o.id) && "bg-blue-50/20"
+                  )}
+                  onClick={() => navigate({ to: "/orders/$id", params: { id: o.id } })}
+                >
+                  <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                    <input 
+                      type="checkbox"
+                      checked={selectedIds.includes(o.id)}
+                      onChange={() => handleToggleRow(o.id)}
+                      className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4 cursor-pointer"
+                    />
                   </td>
-                  <td className="px-4 py-3 text-slate-700">{o.client}</td>
-                  <td className="px-4 py-3 text-slate-600 text-xs">{o.origin} → {o.destination}</td>
                   <td className="px-4 py-3">
-                    <span className={cn("px-2 py-1 rounded-full text-xs border", statusColor[o.status as OrderStatus])}>
+                    <span className="font-mono font-bold text-primary hover:underline hover:text-primary-hover">
+                      {o.code}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-800 font-semibold">{o.client}</td>
+                  <td className="px-4 py-3 text-slate-500 text-xs">
+                    <div className="font-semibold text-slate-700">{o.origin} → {o.destination}</div>
+                    <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[200px]" title={o.weight}>
+                      {o.weight}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right text-slate-900 font-bold">{formatVND(o.fee)}</td>
+                  <td className="px-4 py-3 text-slate-600 text-xs">
+                    {o.createdAt ? o.createdAt.split("-").reverse().join("/") : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600 text-xs">
+                    {o.updatedAt ? o.updatedAt.split("-").reverse().join("/") : "—"}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-semibold border inline-block whitespace-nowrap shadow-sm", statusColor[o.status as OrderStatus])}>
                       {statusLabel[o.status as OrderStatus]}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right text-slate-900 font-medium">{formatVND(o.fee)}</td>
-                  <td className="px-4 py-3 text-slate-600">{o.createdAt}</td>
                 </tr>
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center py-10 text-slate-500">Không tìm thấy đơn hàng.</td>
+                  <td colSpan={8} className="text-center py-12 text-slate-400 text-sm">
+                    Không tìm thấy vận đơn nào phù hợp.
+                  </td>
                 </tr>
               )}
             </tbody>
           </table>
+          </div>
         </Card>
       </div>
+
+      {/* Bulk Status Update Modal Dialog matching Frame 12 */}
+      <Dialog open={openStatusModal} onOpenChange={setOpenStatusModal}>
+        <DialogContent className="sm:max-w-md p-6">
+          <DialogHeader className="pb-3 border-b">
+            <DialogTitle className="text-base font-bold text-slate-900">Thay đổi trạng thái</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-3.5 text-left">
+            <div className="text-xs font-medium text-slate-500">
+              Cập nhật trạng thái cho {selectedIds.length} vận đơn đã chọn:
+            </div>
+            
+            <div className="grid grid-cols-1 gap-2.5">
+              {[
+                { val: "dang_van_chuyen", lbl: "Đang vận chuyển", dot: "bg-blue-500" },
+                { val: "nhan_kho_tq", lbl: "Nhận tại kho TQ", dot: "bg-yellow-500" },
+                { val: "xuat_kho_tq", lbl: "Xuất kho - vận chuyển nội địa TQ", dot: "bg-orange-500" },
+                { val: "thong_quan", lbl: "Thông quan biên giới", dot: "bg-red-500" },
+                { val: "van_chuyen_vn", lbl: "Vận chuyển nội địa VN", dot: "bg-purple-500" },
+                { val: "hoan_thanh", lbl: "Đã hoàn thành", dot: "bg-emerald-500" }
+              ].map((item) => (
+                <label 
+                  key={item.val} 
+                  className={cn(
+                    "flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer hover:bg-slate-50 transition-colors text-xs font-semibold text-slate-700",
+                    bulkStatusValue === item.val ? "border-primary bg-primary/5 text-primary" : "border-slate-200"
+                  )}
+                >
+                  <input
+                    type="radio"
+                    name="bulkStatus"
+                    value={item.val}
+                    checked={bulkStatusValue === item.val}
+                    onChange={() => setBulkStatusValue(item.val as OrderStatus)}
+                    className="h-4 w-4 text-primary focus:ring-primary border-slate-300"
+                  />
+                  <span className={cn("w-2.5 h-2.5 rounded-full", item.dot)} />
+                  <span>{item.lbl}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <DialogFooter className="pt-3 border-t gap-2 flex items-center justify-end">
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={() => setOpenStatusModal(false)}
+              className="h-9 text-xs font-semibold px-4 text-slate-600"
+            >
+              Hủy
+            </Button>
+            <Button 
+              type="button" 
+              onClick={handleBulkStatusUpdate}
+              className="h-9 text-xs font-semibold bg-primary hover:bg-primary/95 text-white px-5 shadow-sm"
+            >
+              Cập nhật
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Date Update Modal Dialog matching Frame 13 */}
+      <Dialog open={openDateModal} onOpenChange={setOpenDateModal}>
+        <DialogContent className="sm:max-w-md p-6">
+          <DialogHeader className="pb-3 border-b">
+            <DialogTitle className="text-base font-bold text-slate-900">Ngày cập nhật</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4 text-left">
+            <div className="text-xs font-medium text-slate-500">
+              Chọn Ngày cập nhật mới cho {selectedIds.length} vận đơn đã chọn:
+            </div>
+            
+            <div className="space-y-1.5">
+              <Label htmlFor="bulkDateInput" className="text-xs font-semibold text-slate-700">Ngày cập nhật *</Label>
+              <div className="relative">
+                <Input
+                  id="bulkDateInput"
+                  type="date"
+                  value={bulkDateValue}
+                  onChange={(e) => setBulkDateValue(e.target.value)}
+                  className="h-10 text-sm font-semibold pl-10"
+                />
+                <CalendarIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="pt-3 border-t gap-2 flex items-center justify-end">
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={() => setOpenDateModal(false)}
+              className="h-9 text-xs font-semibold px-4 text-slate-600"
+            >
+              Hủy
+            </Button>
+            <Button 
+              type="button" 
+              onClick={handleBulkDateUpdate}
+              className="h-9 text-xs font-semibold bg-primary hover:bg-primary/95 text-white px-5 shadow-sm"
+            >
+              Cập nhật
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }
