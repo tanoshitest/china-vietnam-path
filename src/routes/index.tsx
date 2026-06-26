@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
@@ -34,6 +34,7 @@ import {
   type EbtRow,
 } from "@/lib/debt-storage";
 import { cn } from "@/lib/utils";
+import { useAppRole } from "@/lib/app-role";
 
 export const Route = createFileRoute("/")({
   component: Dashboard,
@@ -226,8 +227,13 @@ function EbtTab({ rows }: { rows: EbtRow[] }) {
 }
 
 function Dashboard() {
+  const { isClient } = useAppRole();
   const [orders, setOrders] = useState<Order[]>([]);
   const [ebtRows, setEbtRows] = useState<EbtRow[]>([]);
+
+  if (isClient) {
+    return <Navigate to="/orders" />;
+  }
 
   const reload = () => {
     const storedOrders = getStoredOrders();

@@ -51,6 +51,7 @@ import {
   type OrderStatus,
 } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import { orderBelongsToClient, useAppRole } from "@/lib/app-role";
 
 export const Route = createFileRoute("/orders")({
   component: OrdersPage,
@@ -204,6 +205,7 @@ const saveStoredOrders = (newOrders: any[]) => {
 function OrdersPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { isClient, client } = useAppRole();
   const [allOrders, setAllOrders] = useState<any[]>([]);
 
   // If navigating to detail route, render Outlet directly
@@ -248,7 +250,11 @@ function OrdersPage() {
   const [items, setItems] = useState<GoodsItem[]>([createEmptyItem()]);
 
   // Filters logic
-  const filtered = allOrders.filter((o) => {
+  const visibleOrders = isClient
+    ? allOrders.filter((order) => orderBelongsToClient(order, client))
+    : allOrders;
+
+  const filtered = visibleOrders.filter((o) => {
     const matchQ =
       o.code.toLowerCase().includes(q.toLowerCase()) ||
       o.client.toLowerCase().includes(q.toLowerCase());
@@ -499,13 +505,20 @@ function OrdersPage() {
 
   return (
     <AppLayout>
-      <div className="space-y-5">
-        <div className="flex items-center justify-between">
+      <div className={cn("flex flex-col", isClient ? "h-full gap-3" : "space-y-5")}>
+        <div className={cn("flex items-center justify-between", isClient && "shrink-0")}>
           <div>
-            <h2 className="text-xl font-semibold text-slate-900">Quản lý Vận đơn</h2>
-            <p className="text-sm text-slate-500">Theo dõi toàn bộ đơn hàng tuyến TQ – VN</p>
+            <h2 className="text-xl font-semibold text-slate-900">
+              {isClient ? "Vận đơn của tôi" : "Quản lý Vận đơn"}
+            </h2>
+            <p className="text-sm text-slate-500">
+              {isClient
+                ? `Danh sách vận đơn của ${client.name} (${client.id})`
+                : "Theo dõi toàn bộ đơn hàng tuyến TQ – VN"}
+            </p>
           </div>
-          
+
+          {!isClient && (
           <Dialog open={open} onOpenChange={handleOpenChange}>
             <DialogTrigger asChild>
               <Button className="bg-primary hover:bg-primary/95 text-white transition-all shadow-sm duration-200">
@@ -857,16 +870,21 @@ function OrdersPage() {
               </form>
             </DialogContent>
           </Dialog>
+          )}
         </div>
 
         {/* Filters and Actions Block */}
-        <Card className="p-4 space-y-4">
+        <Card className={cn("space-y-4 p-4", isClient && "shrink-0")}>
           <div className="flex flex-col md:flex-row gap-3">
             {/* Search Input */}
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <Input
-                placeholder="Tìm theo tên khách hàng hoặc mã vận đơn..."
+                placeholder={
+                  isClient
+                    ? "Tìm theo mã vận đơn..."
+                    : "Tìm theo tên khách hàng hoặc mã vận đơn..."
+                }
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 className="pl-9 text-sm h-10"
@@ -909,7 +927,7 @@ function OrdersPage() {
           </div>
 
           {/* Bulk Action Trigger Bar matching Frame 9 / Frame 12 */}
-          {selectedIds.length > 0 && (
+          {!isClient && selectedIds.length > 0 && (
             <div className="bg-blue-50/70 border border-blue-100 rounded-lg p-3 flex flex-wrap items-center justify-between gap-3 animate-in fade-in duration-200">
               <div className="flex items-center gap-2 text-xs text-blue-700">
                 <span className="font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
@@ -952,12 +970,13 @@ function OrdersPage() {
         </Card>
 
         {/* Orders Table Card */}
-        <Card className="overflow-hidden p-0 shadow-sm border-slate-200">
+        <Card className={cn("overflow-hidden border-slate-200 p-0 shadow-sm", isClient && "flex min-h-0 flex-1 flex-col")}>
           <div className="overflow-x-auto">
-          <div className="max-h-[440px] overflow-y-auto">
+          <div className={cn(isClient ? "min-h-0 flex-1 overflow-y-auto" : "max-h-[440px] overflow-y-auto")}>
           <table className="w-full text-sm min-w-[960px]">
             <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold border-b border-slate-200 sticky top-0 z-10 shadow-[0_1px_0_0_rgb(226_232_240)]">
               <tr>
+                {!isClient && (
                 <th className="px-4 py-3 text-center w-[40px]">
                   <input 
                     type="checkbox"
@@ -966,6 +985,7 @@ function OrdersPage() {
                     className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4 cursor-pointer"
                   />
                 </th>
+                )}
                 <th className="text-left px-4 py-3 font-medium whitespace-nowrap">Mã vận đơn</th>
                 <th className="text-left px-4 py-3 font-medium whitespace-nowrap">Tên khách hàng</th>
                 <th className="text-left px-4 py-3 font-medium whitespace-nowrap">Tổng số lượng</th>
@@ -985,6 +1005,7 @@ function OrdersPage() {
                   )}
                   onClick={() => navigate({ to: "/orders/$id", params: { id: o.id } })}
                 >
+                  {!isClient && (
                   <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                     <input 
                       type="checkbox"
@@ -993,6 +1014,7 @@ function OrdersPage() {
                       className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4 cursor-pointer"
                     />
                   </td>
+                  )}
                   <td className="px-4 py-3">
                     <span className="font-mono text-xs font-semibold text-primary hover:underline">
                       {o.code}
@@ -1012,6 +1034,16 @@ function OrdersPage() {
                     {formatLogDate(getOrderUpdatedAt(o)) || "—"}
                   </td>
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    {isClient ? (
+                      <span
+                        className={cn(
+                          "inline-flex min-w-[260px] justify-center rounded-lg border px-3.5 py-2 text-xs font-semibold shadow-sm",
+                          statusColor[normalizeStatus(o.status)]
+                        )}
+                      >
+                        {statusLabel[normalizeStatus(o.status)]}
+                      </span>
+                    ) : (
                     <Select
                       value={normalizeStatus(o.status)}
                       onValueChange={(val) => handleRowStatusUpdate(o.id, val as OrderStatus)}
@@ -1032,12 +1064,13 @@ function OrdersPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    )}
                   </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="text-center py-12 text-slate-400 text-sm">
+                  <td colSpan={isClient ? 7 : 8} className="text-center py-12 text-slate-400 text-sm">
                     Không tìm thấy vận đơn nào phù hợp.
                   </td>
                 </tr>

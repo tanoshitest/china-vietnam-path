@@ -41,6 +41,7 @@ import {
 } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { orderBelongsToClient, useAppRole } from "@/lib/app-role";
 
 const ORDER_SPEC_UNITS = ["Conts", "Sacks", "Bags", "Rolls"] as const;
 type OrderSpecUnit = (typeof ORDER_SPEC_UNITS)[number];
@@ -108,6 +109,7 @@ const saveStoredCustomers = (items: StoredCustomer[]) => {
 function OrderDetail() {
   const { id } = Route.useParams();
   const navigate = useNavigate();
+  const { isClient, client } = useAppRole();
   const [allOrders, setAllOrders] = useState<any[]>([]);
   const [order, setOrder] = useState<any | null>(null);
 
@@ -177,6 +179,22 @@ function OrderDetail() {
       </AppLayout>
     );
   }
+
+  if (isClient && !orderBelongsToClient(order, client)) {
+    return (
+      <AppLayout>
+        <div className="space-y-4 py-8 text-center">
+          <h2 className="text-xl font-bold text-slate-900">Không có quyền xem vận đơn</h2>
+          <p className="text-slate-500">Vận đơn này không thuộc tài khoản khách hàng của bạn.</p>
+          <Link to="/orders" className="text-primary hover:underline text-sm font-semibold">
+            Quay lại danh sách
+          </Link>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  const readOnly = isClient;
 
   // Client add handler
   const handleAddClient = () => {
@@ -317,17 +335,22 @@ function OrderDetail() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Status dropdown */}
-            <Select value={currentStatus} onValueChange={(val) => handleStatusChange(val as OrderStatus)}>
-              <SelectTrigger className={cn("h-9 text-xs font-semibold border shadow-sm px-3.5 rounded-lg min-w-[260px]", statusColor[currentStatus])}>
-                <SelectValue placeholder="Chọn trạng thái" />
-              </SelectTrigger>
-              <SelectContent>
-                {ORDER_STATUSES.map((s) => (
-                  <SelectItem key={s} value={s} className="text-xs">{statusLabel[s]}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {readOnly ? (
+              <span className={cn("inline-flex h-9 items-center rounded-lg border px-3.5 text-xs font-semibold shadow-sm min-w-[260px]", statusColor[currentStatus])}>
+                {statusLabel[currentStatus]}
+              </span>
+            ) : (
+              <Select value={currentStatus} onValueChange={(val) => handleStatusChange(val as OrderStatus)}>
+                <SelectTrigger className={cn("h-9 text-xs font-semibold border shadow-sm px-3.5 rounded-lg min-w-[260px]", statusColor[currentStatus])}>
+                  <SelectValue placeholder="Chọn trạng thái" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ORDER_STATUSES.map((s) => (
+                    <SelectItem key={s} value={s} className="text-xs">{statusLabel[s]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </div>
 
@@ -341,7 +364,9 @@ function OrderDetail() {
                 type="date"
                 value={receivedDate}
                 onChange={(e) => setReceivedDate(e.target.value)}
-                className="h-9 text-xs font-semibold"
+                readOnly={readOnly}
+                disabled={readOnly}
+                className={cn("h-9 text-xs font-semibold", readOnly && "bg-slate-50 cursor-default opacity-100")}
               />
             </div>
             
@@ -352,7 +377,9 @@ function OrderDetail() {
                 placeholder="VD: GZ02"
                 value={masterBill}
                 onChange={(e) => setMasterBill(e.target.value)}
-                className="h-9 text-xs font-semibold"
+                readOnly={readOnly}
+                disabled={readOnly}
+                className={cn("h-9 text-xs font-semibold", readOnly && "bg-slate-50 cursor-default opacity-100")}
               />
             </div>
 
@@ -363,7 +390,9 @@ function OrderDetail() {
                 placeholder="Nhập mã vận đơn..."
                 value={customCode}
                 onChange={(e) => setCustomCode(e.target.value)}
-                className="h-9 text-xs font-mono font-bold text-primary"
+                readOnly={readOnly}
+                disabled={readOnly}
+                className={cn("h-9 text-xs font-mono font-bold text-primary", readOnly && "bg-slate-50 cursor-default opacity-100")}
               />
             </div>
           </div>
@@ -372,7 +401,14 @@ function OrderDetail() {
             {/* Client selector with plus trigger */}
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold text-slate-700">Khách hàng *</Label>
-              {isAddingClient ? (
+              {readOnly ? (
+                <Input
+                  value={selectedClient}
+                  readOnly
+                  disabled
+                  className="h-9 text-xs bg-slate-50 cursor-default opacity-100"
+                />
+              ) : isAddingClient ? (
                 <div className="flex gap-1.5">
                   <Input
                     placeholder="Tên khách mới..."
@@ -438,7 +474,9 @@ function OrderDetail() {
                 id="origin"
                 value={origin}
                 onChange={(e) => setOrigin(e.target.value)}
-                className="h-9 text-xs font-semibold"
+                readOnly={readOnly}
+                disabled={readOnly}
+                className={cn("h-9 text-xs font-semibold", readOnly && "bg-slate-50 cursor-default opacity-100")}
               />
             </div>
 
@@ -448,7 +486,9 @@ function OrderDetail() {
                 id="destination"
                 value={destination}
                 onChange={(e) => setDestination(e.target.value)}
-                className="h-9 text-xs font-semibold"
+                readOnly={readOnly}
+                disabled={readOnly}
+                className={cn("h-9 text-xs font-semibold", readOnly && "bg-slate-50 cursor-default opacity-100")}
               />
             </div>
           </div>
@@ -458,6 +498,7 @@ function OrderDetail() {
         <div className="space-y-2 pt-2">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Danh sách hàng hóa</h3>
+            {!readOnly && (
             <Button
               type="button"
               variant="outline"
@@ -467,6 +508,7 @@ function OrderDetail() {
             >
               <Plus className="w-3.5 h-3.5 mr-1" /> Thêm hàng hóa
             </Button>
+            )}
           </div>
 
           <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
@@ -481,12 +523,26 @@ function OrderDetail() {
                     <th className="px-3 py-2.5 text-right w-[15%]">Đơn giá (VND)</th>
                     <th className="px-3 py-2.5 text-right w-[15%]">Chi phí phát sinh (VND)</th>
                     <th className="px-3 py-2.5 text-right w-[13%]">Thành tiền</th>
-                    <th className="px-3 py-2.5 text-center w-[6%]">Xóa</th>
+                    {!readOnly && <th className="px-3 py-2.5 text-center w-[6%]">Xóa</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {items.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                      {readOnly ? (
+                        <>
+                          <td className="px-3 py-2 font-medium text-slate-800">{item.name || "—"}</td>
+                          <td className="px-3 py-2 text-center tabular-nums">{item.quantity}</td>
+                          <td className="px-3 py-2">{normalizeOrderUnit(item.unit)}</td>
+                          <td className="px-3 py-2 tabular-nums">{item.weight || "—"}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{formatVND(item.shippingPrice)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{item.extraFee ? formatVND(item.extraFee) : "—"}</td>
+                          <td className="px-3 py-2 text-right font-medium text-slate-800">
+                            {formatVND(item.quantity * item.shippingPrice + (item.extraFee || 0))}
+                          </td>
+                        </>
+                      ) : (
+                        <>
                       <td className="px-3 py-2">
                         <Input
                           value={item.name}
@@ -567,6 +623,8 @@ function OrderDetail() {
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
                       </td>
+                        </>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -591,9 +649,11 @@ function OrderDetail() {
         <div className="space-y-3 pt-3">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Tài liệu đính kèm</h3>
+            {!readOnly && (
             <Button type="button" variant="outline" size="sm" className="h-8 text-xs">
               <Upload className="w-3.5 h-3.5 mr-1.5 text-slate-400" /> Tải lên tài liệu
             </Button>
+            )}
           </div>
           
           <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-3">
@@ -623,7 +683,9 @@ function OrderDetail() {
             placeholder="Ghi chú thêm về lô hàng (ví dụ: Hàng dễ vỡ, cần bọc chống sốc)..." 
             value={note} 
             onChange={(e) => setNote(e.target.value)} 
-            className="text-xs min-h-[60px]"
+            readOnly={readOnly}
+            disabled={readOnly}
+            className={cn("text-xs min-h-[60px]", readOnly && "bg-slate-50 cursor-default opacity-100 resize-none")}
           />
         </div>
 
@@ -680,8 +742,9 @@ function OrderDetail() {
             onClick={() => navigate({ to: "/orders" })}
             className="h-10 text-xs font-semibold px-5 text-slate-600 border-slate-200 hover:bg-slate-50"
           >
-            Hủy
+            {readOnly ? "Quay lại" : "Hủy"}
           </Button>
+          {!readOnly && (
           <Button 
             type="button" 
             onClick={handleSave}
@@ -689,6 +752,7 @@ function OrderDetail() {
           >
             Lưu thay đổi
           </Button>
+          )}
         </div>
       </div>
 

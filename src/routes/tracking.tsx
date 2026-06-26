@@ -8,6 +8,7 @@ import { Search, CheckCircle2, Circle, Package } from "lucide-react";
 import { statusLabel, statusColor, normalizeStatus, type Order } from "@/lib/mock-data";
 import { getStoredOrders } from "@/lib/debt-storage";
 import { cn } from "@/lib/utils";
+import { orderBelongsToClient, useAppRole } from "@/lib/app-role";
 
 export const Route = createFileRoute("/tracking")({
   component: TrackingPage,
@@ -20,13 +21,17 @@ export const Route = createFileRoute("/tracking")({
 });
 
 function TrackingPage() {
+  const { isClient, client } = useAppRole();
   const [orders, setOrders] = useState<Order[]>([]);
   const [code, setCode] = useState("CRTO-2511025-01");
   const [searched, setSearched] = useState("CRTO-2511025-01");
 
   useEffect(() => {
-    setOrders(getStoredOrders());
-  }, []);
+    const stored = getStoredOrders();
+    setOrders(
+      isClient ? stored.filter((order) => orderBelongsToClient(order, client)) : stored
+    );
+  }, [isClient, client]);
 
   const order = orders.find((o) => o.code.toLowerCase() === searched.toLowerCase());
 
