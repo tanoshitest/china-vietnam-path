@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { orders, clients, debtHistory, statusLabel, statusColor, formatVND, type OrderStatus } from "@/lib/mock-data";
+import { orders, clients, debtHistory, statusLabel, statusColor, formatVND, normalizeStatus, type OrderStatus } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { LogIn, LogOut, UserCircle, AlertTriangle, Wallet } from "lucide-react";
 
@@ -107,8 +107,8 @@ function PortalPage() {
                       <td className="px-4 py-3 font-medium text-primary">{o.code}</td>
                       <td className="px-4 py-3 text-slate-600 text-xs">{o.origin} → {o.destination}</td>
                       <td className="px-4 py-3">
-                        <span className={cn("px-2 py-1 rounded-full text-xs border", statusColor[o.status as OrderStatus])}>
-                          {statusLabel[o.status as OrderStatus]}
+                        <span className={cn("px-2 py-1 rounded-full text-xs border", statusColor[normalizeStatus(o.status)])}>
+                          {statusLabel[normalizeStatus(o.status)]}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right font-medium">{formatVND(o.fee)}</td>

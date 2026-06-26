@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
@@ -23,6 +23,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Phone, Trash2, Search, Filter } from "lucide-react";
+import {
+  formatLogDate,
+  vendors as legacyVendors,
+  type Order,
+} from "@/lib/mock-data";
+import {
+  getStoredDebts,
+  getStoredOrders,
+  inferDebtRecordType,
+  type StoredDebtRecord,
+} from "@/lib/debt-storage";
 
 export const Route = createFileRoute("/suppliers")({
   component: SuppliersPage,
@@ -30,67 +41,172 @@ export const Route = createFileRoute("/suppliers")({
 });
 
 type SupplierType =
-  | "Nhà cung cấp Thông Quan"
-  | "Nhà cung cấp Vận chuyển"
-  | "Nhà Xe"
-  | "Bốc Xếp";
+  | "Export Handling Agent"
+  | "Import Handling Agent"
+  | "Freight Handling Agent"
+  | "Unloading Handling Agent"
+  | "Last-mile Carrier"
+  | "Outsourced Unit"
+  | "Others";
 
 type Supplier = {
   id: string;
   name: string;
   type: SupplierType;
   contact: string;
+  address: string;
 };
 
 const supplierTypes: SupplierType[] = [
-  "Nhà cung cấp Thông Quan",
-  "Nhà cung cấp Vận chuyển",
-  "Nhà Xe",
-  "Bốc Xếp",
+  "Export Handling Agent",
+  "Import Handling Agent",
+  "Freight Handling Agent",
+  "Unloading Handling Agent",
+  "Last-mile Carrier",
+  "Outsourced Unit",
+  "Others",
 ];
 
-const typeBadge = (type: SupplierType) =>
-  type === "Nhà cung cấp Thông Quan"
-    ? "bg-red-100 text-red-700 border-red-200"
-    : type === "Nhà cung cấp Vận chuyển"
-      ? "bg-blue-100 text-blue-700 border-blue-200"
-      : type === "Nhà Xe"
-        ? "bg-purple-100 text-purple-700 border-purple-200"
-        : "bg-amber-100 text-amber-700 border-amber-200";
+const LEGACY_SUPPLIER_TYPE_MAP: Record<string, SupplierType> = {
+  "Nhà cung cấp Thông Quan": "Import Handling Agent",
+  "Nhà cung cấp Vận chuyển": "Freight Handling Agent",
+  "Nhà Xe": "Last-mile Carrier",
+  "Bốc Xếp": "Unloading Handling Agent",
+};
+
+const normalizeSupplierType = (type: string): SupplierType => {
+  if (supplierTypes.includes(type as SupplierType)) return type as SupplierType;
+  return LEGACY_SUPPLIER_TYPE_MAP[type] ?? "Others";
+};
+
+const typeBadgeColors: Record<SupplierType, string> = {
+  "Export Handling Agent": "bg-orange-100 text-orange-700 border-orange-200",
+  "Import Handling Agent": "bg-red-100 text-red-700 border-red-200",
+  "Freight Handling Agent": "bg-blue-100 text-blue-700 border-blue-200",
+  "Unloading Handling Agent": "bg-amber-100 text-amber-700 border-amber-200",
+  "Last-mile Carrier": "bg-purple-100 text-purple-700 border-purple-200",
+  "Outsourced Unit": "bg-emerald-100 text-emerald-700 border-emerald-200",
+  "Others": "bg-slate-100 text-slate-700 border-slate-200",
+};
+
+const typeBadge = (type: SupplierType) => typeBadgeColors[type];
 
 const demoSuppliers: Supplier[] = [
   {
     id: "NCC01",
     name: "Hải Quan Hữu Nghị",
-    type: "Nhà cung cấp Thông Quan",
+    type: "Import Handling Agent",
     contact: "0205 123 456",
+    address: "Cửa khẩu Hữu Nghị, Lạng Sơn",
   },
   {
     id: "NCC02",
     name: "GZ Express",
-    type: "Nhà cung cấp Vận chuyển",
+    type: "Freight Handling Agent",
     contact: "+86 138 0000 1111",
+    address: "Guangzhou, Guangdong, China",
   },
   {
     id: "NCC03",
     name: "Nhà Xe An Phát",
-    type: "Nhà Xe",
+    type: "Last-mile Carrier",
     contact: "0988 111 222",
+    address: "Km 15, Quốc lộ 1A, Hà Nội",
   },
   {
     id: "NCC04",
     name: "Bốc Xếp Móng Cái",
-    type: "Bốc Xếp",
+    type: "Unloading Handling Agent",
     contact: "0912 333 444",
+    address: "Cửa khẩu Móng Cái, Quảng Ninh",
+  },
+  {
+    id: "NCC05",
+    name: "SZ Export Services",
+    type: "Export Handling Agent",
+    contact: "+86 755 888 9999",
+    address: "Shenzhen, Guangdong, China",
+  },
+  {
+    id: "NCC06",
+    name: "Logistics Partner Co.",
+    type: "Outsourced Unit",
+    contact: "0909 555 666",
+    address: "KCN VSIP, Thuận An, Bình Dương",
   },
 ];
+
+const normalizeSupplier = (item: Partial<Supplier>): Supplier => ({
+  id: item.id ?? "",
+  name: item.name ?? "",
+  type: normalizeSupplierType(item.type ?? "Others"),
+  contact: item.contact ?? "—",
+  address: item.address ?? "—",
+});
+
+const normalizeNameKey = (name: string) =>
+  name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+const supplierMatchesPartyId = (
+  supplier: Supplier,
+  partyId: string,
+  supplierList: Supplier[]
+): boolean => {
+  if (!partyId) return false;
+  if (partyId === supplier.id) return true;
+
+  const matchedSupplier = supplierList.find((item) => item.id === partyId);
+  if (matchedSupplier && normalizeNameKey(matchedSupplier.name) === normalizeNameKey(supplier.name)) {
+    return true;
+  }
+
+  const legacyVendor = legacyVendors.find((item) => item.id === partyId);
+  if (legacyVendor && normalizeNameKey(legacyVendor.name) === normalizeNameKey(supplier.name)) {
+    return true;
+  }
+
+  return false;
+};
+
+const getSupplierAmountFromBreakdown = (
+  breakdown: StoredDebtRecord["costBreakdown"],
+  supplier: Supplier,
+  supplierList: Supplier[]
+) => {
+  if (!breakdown) return 0;
+  return Object.values(breakdown).reduce((sum, value) => {
+    if (typeof value === "number") return sum;
+    const amount = value?.amount ?? 0;
+    const partyId = value?.partyId ?? "";
+    if (amount <= 0 || !supplierMatchesPartyId(supplier, partyId, supplierList)) return sum;
+    return sum + amount;
+  }, 0);
+};
+
+type SupplierOrderRow = {
+  order: Order;
+  supplierAmount: number;
+};
 
 const getStoredSuppliers = () => {
   if (typeof window === "undefined") return demoSuppliers;
   const stored = localStorage.getItem("viet_thao_suppliers");
   if (stored) {
     try {
-      return JSON.parse(stored) as Supplier[];
+      const demoById = Object.fromEntries(demoSuppliers.map((item) => [item.id, item]));
+      return (JSON.parse(stored) as Partial<Supplier>[]).map((item) => {
+        const normalized = normalizeSupplier(item);
+        const demo = demoById[normalized.id];
+        if (!demo) return normalized;
+        return {
+          ...normalized,
+          address: normalized.address === "—" ? demo.address : normalized.address,
+        };
+      });
     } catch {
       return demoSuppliers;
     }
@@ -106,18 +222,58 @@ const saveStoredSuppliers = (items: Supplier[]) => {
 
 function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [debts, setDebts] = useState<StoredDebtRecord[]>([]);
   const [open, setOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+  const [detailForm, setDetailForm] = useState({
+    name: "",
+    type: "Export Handling Agent" as SupplierType,
+    contact: "",
+    address: "",
+  });
   const [q, setQ] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [form, setForm] = useState({
     name: "",
-    type: "Nhà cung cấp Thông Quan" as SupplierType,
+    type: "Export Handling Agent" as SupplierType,
     contact: "",
   });
 
   useEffect(() => {
     setSuppliers(getStoredSuppliers());
+    setOrders(getStoredOrders());
+    setDebts(getStoredDebts());
   }, []);
+
+  useEffect(() => {
+    if (!detailOpen) return;
+    setOrders(getStoredOrders());
+    setDebts(getStoredDebts());
+  }, [detailOpen]);
+
+  const supplierOrders = useMemo((): SupplierOrderRow[] => {
+    if (!selectedSupplier) return [];
+
+    const rows: SupplierOrderRow[] = [];
+    for (const order of orders) {
+      const costDebt = debts.find(
+        (debt) =>
+          inferDebtRecordType(debt) === "cost" &&
+          (debt.orderId === order.id || debt.waybill === order.code)
+      );
+      const supplierAmount = getSupplierAmountFromBreakdown(
+        costDebt?.costBreakdown,
+        selectedSupplier,
+        suppliers
+      );
+      if (supplierAmount > 0) {
+        rows.push({ order, supplierAmount });
+      }
+    }
+    return rows;
+  }, [orders, debts, selectedSupplier, suppliers]);
 
   const handleAddSupplier = (e: React.FormEvent) => {
     e.preventDefault();
@@ -132,13 +288,14 @@ function SuppliersPage() {
       name: form.name.trim(),
       type: form.type,
       contact: form.contact.trim() || "—",
+      address: "—",
     };
 
     const updated = [...suppliers, newSupplier];
     setSuppliers(updated);
     saveStoredSuppliers(updated);
     toast.success(`Đã thêm nhà cung cấp: ${newSupplier.name}`);
-    setForm({ name: "", type: "Nhà cung cấp Thông Quan", contact: "" });
+    setForm({ name: "", type: "Export Handling Agent", contact: "" });
     setOpen(false);
   };
 
@@ -149,8 +306,43 @@ function SuppliersPage() {
     toast.success(`Đã xoá nhà cung cấp: ${name}`);
   };
 
+  const openSupplierDetail = (supplier: Supplier) => {
+    setSelectedSupplier(supplier);
+    setDetailForm({
+      name: supplier.name,
+      type: normalizeSupplierType(supplier.type),
+      contact: supplier.contact === "—" ? "" : supplier.contact,
+      address: supplier.address === "—" ? "" : supplier.address,
+    });
+    setDetailOpen(true);
+  };
+
+  const handleSaveSupplierDetail = () => {
+    if (!selectedSupplier) return;
+    if (!detailForm.name.trim()) {
+      toast.error("Vui lòng nhập tên nhà cung cấp");
+      return;
+    }
+
+    const updatedSupplier: Supplier = {
+      ...selectedSupplier,
+      name: detailForm.name.trim(),
+      type: detailForm.type,
+      contact: detailForm.contact.trim() || "—",
+      address: detailForm.address.trim() || "—",
+    };
+
+    const updated = suppliers.map((item) =>
+      item.id === selectedSupplier.id ? updatedSupplier : item
+    );
+    setSuppliers(updated);
+    saveStoredSuppliers(updated);
+    setSelectedSupplier(updatedSupplier);
+    toast.success("Đã lưu thông tin nhà cung cấp");
+  };
+
   const filteredSuppliers = suppliers.filter((item) => {
-    if (typeFilter !== "all" && item.type !== typeFilter) return false;
+    if (typeFilter !== "all" && normalizeSupplierType(item.type) !== typeFilter) return false;
     const needle = q.trim().toLowerCase();
     if (
       needle &&
@@ -169,7 +361,9 @@ function SuppliersPage() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-slate-900">Quản lý nhà cung cấp</h2>
-            <p className="text-sm text-slate-500">Danh sách nhà cung cấp theo loại dịch vụ, có tìm kiếm và bộ lọc.</p>
+            <p className="text-sm text-slate-500">
+              Danh sách nhà cung cấp — bấm vào từng dòng để xem chi tiết và lịch sử đơn hàng dịch vụ.
+            </p>
           </div>
 
           <Dialog open={open} onOpenChange={setOpen}>
@@ -179,7 +373,7 @@ function SuppliersPage() {
                 Thêm nhà cung cấp
               </Button>
             </DialogTrigger>
-              <DialogContent className="sm:max-w-md p-6">
+              <DialogContent className="sm:max-w-lg p-6">
                 <DialogHeader className="border-b pb-3">
                   <DialogTitle className="text-base font-bold text-slate-900">
                     Thêm nhà cung cấp mới
@@ -264,6 +458,163 @@ function SuppliersPage() {
             </Dialog>
         </div>
 
+        <Dialog
+          open={detailOpen}
+          onOpenChange={(isOpen) => {
+            setDetailOpen(isOpen);
+            if (!isOpen) setSelectedSupplier(null);
+          }}
+        >
+          <DialogContent className="!flex max-h-[90vh] w-[calc(100vw-1.5rem)] max-w-[1400px] flex-col gap-0 overflow-hidden p-0 sm:rounded-xl">
+            <DialogHeader className="shrink-0 border-b px-6 pb-3 pt-6">
+              <DialogTitle className="text-base font-bold text-slate-900">Chi tiết nhà cung cấp</DialogTitle>
+              <DialogDescription>
+                {selectedSupplier ? `${selectedSupplier.id} · ${detailForm.name || selectedSupplier.name}` : ""}
+              </DialogDescription>
+            </DialogHeader>
+
+            {selectedSupplier && (
+              <>
+                <div className="shrink-0 space-y-3 border-b border-slate-100 px-6 py-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="space-y-1.5 lg:col-span-2">
+                      <Label htmlFor="detail-supplier-name" className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Tên nhà cung cấp
+                      </Label>
+                      <Input
+                        id="detail-supplier-name"
+                        value={detailForm.name}
+                        onChange={(e) => setDetailForm({ ...detailForm, name: e.target.value })}
+                        className="h-9 text-sm font-semibold"
+                      />
+                    </div>
+                    <div className="space-y-1.5 lg:col-span-2">
+                      <Label htmlFor="detail-supplier-type" className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Loại nhà cung cấp
+                      </Label>
+                      <Select
+                        value={detailForm.type}
+                        onValueChange={(value) =>
+                          setDetailForm({ ...detailForm, type: value as SupplierType })
+                        }
+                      >
+                        <SelectTrigger id="detail-supplier-type" className="h-9 bg-white text-sm">
+                          <SelectValue placeholder="Chọn loại" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {supplierTypes.map((type) => (
+                            <SelectItem key={type} value={type}>
+                              {type}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="detail-supplier-contact" className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Số điện thoại
+                      </Label>
+                      <Input
+                        id="detail-supplier-contact"
+                        value={detailForm.contact}
+                        onChange={(e) => setDetailForm({ ...detailForm, contact: e.target.value })}
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1.5 sm:col-span-2 lg:col-span-3">
+                      <Label htmlFor="detail-supplier-address" className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Địa chỉ
+                      </Label>
+                      <Input
+                        id="detail-supplier-address"
+                        value={detailForm.address}
+                        onChange={(e) => setDetailForm({ ...detailForm, address: e.target.value })}
+                        className="h-9 text-sm"
+                      />
+                    </div>
+                  </div>
+                  <Label className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Lịch sử đơn hàng dịch vụ
+                  </Label>
+                </div>
+
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-6 pb-3">
+                  <div className="shrink-0 overflow-hidden rounded-t-lg border border-b-0 border-slate-200 bg-slate-50">
+                    <table className="w-full table-fixed text-sm">
+                      <SupplierOrderColGroup />
+                      <thead className="text-xs font-semibold uppercase text-slate-600">
+                        <tr>
+                          <th className="whitespace-nowrap px-4 py-3 text-left">Mã đơn</th>
+                          <th className="whitespace-nowrap px-4 py-3 text-left">Khách hàng</th>
+                          <th className="whitespace-nowrap px-4 py-3 text-left">Ngày phát sinh</th>
+                          <th className="whitespace-nowrap px-4 py-3 text-right">Số tiền</th>
+                          <th className="whitespace-nowrap px-4 py-3 text-left">Tình trạng</th>
+                        </tr>
+                      </thead>
+                    </table>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto rounded-b-lg border border-slate-200 bg-white">
+                    <table className="w-full table-fixed text-sm">
+                      <SupplierOrderColGroup />
+                      <tbody className="divide-y divide-slate-100">
+                        {supplierOrders.map(({ order, supplierAmount }) => (
+                          <tr key={order.id} className="hover:bg-slate-50/60">
+                            <td className="whitespace-nowrap px-4 py-3">
+                              <span className="font-mono text-xs font-semibold text-primary">{order.code}</span>
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 text-xs font-semibold text-slate-800">
+                              {order.client}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 text-xs tabular-nums text-slate-600">
+                              {order.createdAt ? formatLogDate(order.createdAt) : "—"}
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3 text-right text-xs font-semibold tabular-nums text-slate-900">
+                              {supplierAmount.toLocaleString("en-US")} VND
+                            </td>
+                            <td className="whitespace-nowrap px-4 py-3">
+                              <span className="inline-flex min-w-[140px] justify-center rounded-lg border border-emerald-200 bg-emerald-100 px-3 py-1.5 text-xs font-semibold text-emerald-800 shadow-sm">
+                                Đã hoàn thành
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                        {supplierOrders.length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-10 text-center text-sm text-slate-400">
+                              Chưa có đơn hàng dịch vụ nào với nhà cung cấp này.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
+
+            <DialogFooter className="shrink-0 gap-2 border-t bg-white px-6 py-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDetailOpen(false)}
+                className="h-8.5 text-xs font-semibold"
+              >
+                Đóng
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={handleSaveSupplierDetail}
+                disabled={!selectedSupplier}
+                className="h-8.5 bg-primary text-xs font-semibold text-white hover:bg-primary/95"
+              >
+                Lưu thay đổi
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {/* Filters */}
         <Card className="p-4">
           <div className="flex flex-col gap-3 md:flex-row">
@@ -277,7 +628,7 @@ function SuppliersPage() {
               />
             </div>
             <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="h-10 md:w-[230px]">
+              <SelectTrigger className="h-10 md:w-[280px]">
                 <Filter className="mr-1.5 h-3.5 w-3.5 text-slate-400" />
                 <SelectValue placeholder="Loại nhà cung cấp" />
               </SelectTrigger>
@@ -308,16 +659,20 @@ function SuppliersPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredSuppliers.map((item) => (
-                  <tr key={item.id} className="transition-colors hover:bg-slate-50/60">
+                  <tr
+                    key={item.id}
+                    className="cursor-pointer transition-colors hover:bg-blue-50/40"
+                    onClick={() => openSupplierDetail(item)}
+                  >
                     <td className="px-4 py-3 font-mono font-bold text-slate-500">{item.id}</td>
                     <td className="px-4 py-3 font-bold text-slate-800">{item.name}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${typeBadge(item.type)}`}>
-                        {item.type}
+                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${typeBadge(normalizeSupplierType(item.type))}`}>
+                        {normalizeSupplierType(item.type)}
                       </span>
                     </td>
                     <td className="px-4 py-3 font-semibold text-slate-600">{item.contact}</td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                       <Button
                         type="button"
                         size="icon"
@@ -343,5 +698,17 @@ function SuppliersPage() {
         </Card>
       </div>
     </AppLayout>
+  );
+}
+
+function SupplierOrderColGroup() {
+  return (
+    <colgroup>
+      <col className="w-[18%]" />
+      <col className="w-[24%]" />
+      <col className="w-[16%]" />
+      <col className="w-[22%]" />
+      <col className="w-[20%]" />
+    </colgroup>
   );
 }

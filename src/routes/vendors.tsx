@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
@@ -13,7 +13,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import {
   Select,
@@ -22,57 +21,274 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { clients, formatVND, vendors } from "@/lib/mock-data";
-import { Plus, Trash2, Filter, Search, Calendar as CalendarIcon } from "lucide-react";
+import { clients, formatVND, orders as mockOrders, vendors, type Order } from "@/lib/mock-data";
+import { cn } from "@/lib/utils";
+import { Filter, Search } from "lucide-react";
 
-type DebtKind = "Phải thu" | "Phải trả";
-type DebtStatus = "Đang xử lý" | "Quá hạn" | "Hoàn tất";
+type CostLineKey =
+  | "packingAndVerification"
+  | "loading"
+  | "preCarriage"
+  | "customsExport"
+  | "handlingCustomsImportTax"
+  | "onCarriage"
+  | "unloadingLobbyFee"
+  | "localAreaDelivery"
+  | "laborFeeForLoading"
+  | "outOfLocalDelivery"
+  | "expressExpense"
+  | "salary"
+  | "purchasing"
+  | "generalExpense";
 
-type DebtItem = {
-  id: string;
-  waybill: string;
-  partyId: string;
-  amount: number;
-  dueDate: string;
-  kind: DebtKind;
-  status: DebtStatus;
-};
+type CostLine = { amount: number; partyId: string };
+type CostBreakdown = Record<CostLineKey, CostLine>;
+type CostLineForm = { amount: string; partyId: string };
+type CostBreakdownForm = Record<CostLineKey, CostLineForm>;
 
-const kindOptions: DebtKind[] = ["Phải thu", "Phải trả"];
-const statusOptions: DebtStatus[] = ["Đang xử lý", "Quá hạn", "Hoàn tất"];
-
-const demoDebts: DebtItem[] = [
-  { id: "CN001", waybill: "CRTO-2511025-01", partyId: "KH001", amount: 150000000, dueDate: "2026-07-30", kind: "Phải thu", status: "Hoàn tất" },
-  { id: "CN002", waybill: "CRTO-2511025-02", partyId: "KH001", amount: 36000000, dueDate: "2026-07-28", kind: "Phải thu", status: "Đang xử lý" },
-  { id: "CN003", waybill: "CRTO-2511025-03", partyId: "KH002", amount: 120000000, dueDate: "2026-07-25", kind: "Phải thu", status: "Quá hạn" },
-  { id: "CN004", waybill: "CRTO-2511025-04", partyId: "V07", amount: 22000000, dueDate: "2026-07-29", kind: "Phải trả", status: "Đang xử lý" },
-  { id: "CN005", waybill: "CRTO-2511025-05", partyId: "KH001", amount: 100000000, dueDate: "2026-07-20", kind: "Phải thu", status: "Hoàn tất" },
-  { id: "CN006", waybill: "CRTO-2511025-06", partyId: "V06", amount: 18000000, dueDate: "2026-07-27", kind: "Phải trả", status: "Đang xử lý" },
-  { id: "CN007", waybill: "CRTO-2511025-07", partyId: "KH003", amount: 54000000, dueDate: "2026-07-31", kind: "Phải thu", status: "Đang xử lý" },
-  { id: "CN008", waybill: "CRTO-2511025-08", partyId: "V08", amount: 7600000, dueDate: "2026-07-22", kind: "Phải trả", status: "Quá hạn" },
+const COST_LINE_KEYS: CostLineKey[] = [
+  "packingAndVerification",
+  "loading",
+  "preCarriage",
+  "customsExport",
+  "handlingCustomsImportTax",
+  "onCarriage",
+  "unloadingLobbyFee",
+  "localAreaDelivery",
+  "laborFeeForLoading",
+  "outOfLocalDelivery",
+  "expressExpense",
+  "salary",
+  "purchasing",
+  "generalExpense",
 ];
 
-const getStoredDebts = () => {
-  if (typeof window === "undefined") return demoDebts;
-  const stored = localStorage.getItem("viet_thao_debts");
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored) as DebtItem[];
-      const normalized = parsed.map((item, index) => ({
-        ...item,
-        kind: item.kind || kindOptions[index % kindOptions.length],
-        status: item.status || statusOptions[index % statusOptions.length],
-      }));
-      if (normalized.some((item, idx) => item.kind !== parsed[idx]?.kind || item.status !== parsed[idx]?.status)) {
-        localStorage.setItem("viet_thao_debts", JSON.stringify(normalized));
-      }
-      return normalized;
-    } catch {
-      return demoDebts;
+const COST_GROUPS: {
+  title: string;
+  columnLabel: string;
+  bg: string;
+  fields: { key: CostLineKey; label: string }[];
+}[] = [
+  {
+    title: "Chi phí tại đầu xuất (Charges at origin)",
+    columnLabel: "Charges at origin",
+    bg: "bg-sky-50",
+    fields: [
+      { key: "packingAndVerification", label: "Packing and verification" },
+      { key: "loading", label: "Loading" },
+      { key: "preCarriage", label: "Pre-carriage" },
+      { key: "customsExport", label: "Customs Export" },
+    ],
+  },
+  {
+    title: "Chi phí tại điểm đến (Charges at destination)",
+    columnLabel: "Charges at destination",
+    bg: "bg-slate-100",
+    fields: [
+      { key: "handlingCustomsImportTax", label: "Handling & Customs import & Import Tax" },
+      { key: "onCarriage", label: "On-carriage" },
+      { key: "unloadingLobbyFee", label: "Unloading & Lobby Fee" },
+    ],
+  },
+  {
+    title: "Giao hàng chặng cuối (Last-mile delivery)",
+    columnLabel: "Last-mile delivery",
+    bg: "bg-emerald-50",
+    fields: [
+      { key: "localAreaDelivery", label: "Local Area delivery" },
+      { key: "laborFeeForLoading", label: "Labor fee for loading" },
+      { key: "outOfLocalDelivery", label: "Out of local delivery" },
+      { key: "expressExpense", label: "Express Expense" },
+    ],
+  },
+  {
+    title: "Chi phí vận hành (Operation Expense)",
+    columnLabel: "Operation Expense",
+    bg: "bg-amber-50",
+    fields: [
+      { key: "salary", label: "Salary" },
+      { key: "purchasing", label: "Purchasing" },
+      { key: "generalExpense", label: "General Expense" },
+    ],
+  },
+];
+
+const emptyCostLineForm = (): CostLineForm => ({ amount: "", partyId: "" });
+
+const emptyCostBreakdownForm = (): CostBreakdownForm =>
+  Object.fromEntries(COST_LINE_KEYS.map((key) => [key, emptyCostLineForm()])) as CostBreakdownForm;
+
+const parseCostInput = (value: string) => Number(value.replace(/[^\d]/g, "")) || 0;
+
+const formatCostDisplay = (value: number) => (value > 0 ? value.toLocaleString("en-US") : "");
+
+const breakdownFormToData = (form: CostBreakdownForm): CostBreakdown =>
+  Object.fromEntries(
+    COST_LINE_KEYS.map((key) => [
+      key,
+      { amount: parseCostInput(form[key].amount), partyId: form[key].partyId },
+    ])
+  ) as CostBreakdown;
+
+const normalizeStoredBreakdown = (raw?: unknown): CostBreakdown | undefined => {
+  if (!raw || typeof raw !== "object") return undefined;
+  const result = {} as CostBreakdown;
+  for (const key of COST_LINE_KEYS) {
+    const val = (raw as Record<string, unknown>)[key];
+    if (typeof val === "number") {
+      result[key] = { amount: val, partyId: "" };
+    } else if (val && typeof val === "object") {
+      const line = val as { amount?: number; partyId?: string };
+      result[key] = { amount: line.amount ?? 0, partyId: line.partyId ?? "" };
+    } else {
+      result[key] = { amount: 0, partyId: "" };
     }
   }
-  localStorage.setItem("viet_thao_debts", JSON.stringify(demoDebts));
-  return demoDebts;
+  return result;
+};
+
+const breakdownDataToForm = (data?: CostBreakdown): CostBreakdownForm => {
+  const empty = emptyCostBreakdownForm();
+  if (!data) return empty;
+  return Object.fromEntries(
+    COST_LINE_KEYS.map((key) => [
+      key,
+      {
+        amount: formatCostDisplay(data[key]?.amount ?? 0),
+        partyId: data[key]?.partyId ?? "",
+      },
+    ])
+  ) as CostBreakdownForm;
+};
+
+const sumBreakdownForm = (form: CostBreakdownForm) =>
+  COST_LINE_KEYS.reduce((sum, key) => sum + parseCostInput(form[key].amount), 0);
+
+const sumBreakdownData = (data?: CostBreakdown) =>
+  data ? COST_LINE_KEYS.reduce((sum, key) => sum + (data[key]?.amount ?? 0), 0) : 0;
+
+const sumGroupBreakdown = (data: CostBreakdown | undefined, group: (typeof COST_GROUPS)[number]) =>
+  data ? group.fields.reduce((sum, field) => sum + (data[field.key]?.amount ?? 0), 0) : 0;
+
+const findCostLineLabel = (key: CostLineKey) => {
+  for (const group of COST_GROUPS) {
+    const field = group.fields.find((f) => f.key === key);
+    if (field) return field.label;
+  }
+  return key;
+};
+
+type DebtRecordType = "receivable" | "payable" | "cost";
+type VendorPageKind = "Phải thu" | "Phải trả" | "Cập nhật chi phí";
+type PaymentStatus = "Đã thanh toán" | "Chưa thanh toán";
+type PayableStatus = "Chưa nhập" | "Đang xử lý" | "Quá hạn" | "Hoàn tất";
+
+type DebtItem = {
+  orderId: string;
+  waybill: string;
+  amount: number;
+  recordType: DebtRecordType;
+  kind?: VendorPageKind;
+  status?: PayableStatus;
+  paymentStatus?: PaymentStatus;
+  costBreakdown?: CostBreakdown;
+};
+
+const VENDOR_PAGE_KINDS: VendorPageKind[] = ["Phải thu", "Phải trả", "Cập nhật chi phí"];
+const PAYMENT_STATUS_OPTIONS: PaymentStatus[] = ["Chưa thanh toán", "Đã thanh toán"];
+
+const paymentStatusBadge = (status: PaymentStatus) =>
+  status === "Đã thanh toán"
+    ? "bg-emerald-100 text-emerald-700 border-emerald-200"
+    : "bg-amber-100 text-amber-700 border-amber-200";
+
+const normalizePaymentStatus = (
+  paymentStatus?: PaymentStatus,
+  legacyStatus?: PayableStatus
+): PaymentStatus => {
+  if (paymentStatus === "Đã thanh toán" || paymentStatus === "Chưa thanh toán") return paymentStatus;
+  if (legacyStatus === "Hoàn tất") return "Đã thanh toán";
+  return "Chưa thanh toán";
+};
+
+const inferRecordType = (
+  item: Partial<DebtItem> & { kind?: string; costBreakdown?: CostBreakdown }
+): DebtRecordType => {
+  if (item.recordType) return item.recordType;
+  if (item.kind === "Phải thu") return "receivable";
+  if (item.kind === "Cập nhật chi phí") return "cost";
+  if (item.kind === "Phải trả") {
+    if (item.paymentStatus && !item.costBreakdown) return "payable";
+    return "cost";
+  }
+  if (item.costBreakdown) return "cost";
+  if (item.paymentStatus) return item.kind === "Phải thu" ? "receivable" : "payable";
+  return "cost";
+};
+
+const matchOrderDebt = (item: DebtItem, order: Order) =>
+  item.orderId === order.id || item.waybill === order.code;
+
+const findDebtByType = (debts: DebtItem[], order: Order, recordType: DebtRecordType) =>
+  debts.find((d) => d.recordType === recordType && matchOrderDebt(d, order));
+
+const getStoredOrders = (): Order[] => {
+  if (typeof window === "undefined") return mockOrders;
+  const stored = localStorage.getItem("viet_thao_orders");
+  if (stored) {
+    try {
+      return JSON.parse(stored) as Order[];
+    } catch {
+      return mockOrders;
+    }
+  }
+  return mockOrders;
+};
+
+const getStoredDebts = (): DebtItem[] => {
+  if (typeof window === "undefined") return [];
+  const stored = localStorage.getItem("viet_thao_debts");
+  if (!stored) return [];
+  try {
+    const parsed = JSON.parse(stored) as Array<Partial<DebtItem> & { id?: string; dueDate?: string }>;
+    return parsed
+      .filter((item) => item.orderId || item.waybill)
+      .map((item) => {
+        const recordType = inferRecordType(item);
+        const breakdown =
+          recordType === "cost" ? normalizeStoredBreakdown(item.costBreakdown) : undefined;
+        const amount =
+          item.amount ??
+          (recordType === "cost" ? sumBreakdownData(breakdown) : item.amount ?? 0);
+
+        const base = {
+          orderId: item.orderId ?? "",
+          waybill: item.waybill ?? "",
+          amount,
+          recordType,
+          costBreakdown: breakdown,
+        };
+
+        if (recordType === "receivable" || recordType === "payable") {
+          return {
+            ...base,
+            kind: recordType === "receivable" ? ("Phải thu" as const) : ("Phải trả" as const),
+            paymentStatus: normalizePaymentStatus(
+              item.paymentStatus as PaymentStatus | undefined,
+              item.status as PayableStatus | undefined
+            ),
+          };
+        }
+
+        return {
+          ...base,
+          kind: "Cập nhật chi phí" as const,
+          status: (item.status as PayableStatus) ?? "Đang xử lý",
+        };
+      });
+  } catch {
+    return [];
+  }
 };
 
 const saveStoredDebts = (items: DebtItem[]) => {
@@ -80,30 +296,37 @@ const saveStoredDebts = (items: DebtItem[]) => {
   localStorage.setItem("viet_thao_debts", JSON.stringify(items));
 };
 
-const getPartyName = (item: DebtItem) => {
-  if (item.kind === "Phải thu") {
-    return clients.find((client) => client.id === item.partyId)?.name ?? item.partyId;
-  }
-  return vendors.find((vendor) => vendor.id === item.partyId)?.name ?? item.partyId;
+const getPartyName = (partyId: string) => {
+  if (!partyId) return "—";
+  return (
+    vendors.find((vendor) => vendor.id === partyId)?.name ??
+    clients.find((client) => client.id === partyId)?.name ??
+    partyId
+  );
 };
 
-const kindBadge = (kind: DebtKind) =>
-  kind === "Phải thu"
-    ? "bg-blue-100 text-blue-700 border-blue-200"
-    : "bg-purple-100 text-purple-700 border-purple-200";
+const getBreakdownSuppliersSummary = (data: CostBreakdown | undefined) => {
+  if (!data) return "—";
+  const ids = new Set<string>();
+  for (const key of COST_LINE_KEYS) {
+    const line = data[key];
+    if (line?.partyId && line.amount > 0) ids.add(line.partyId);
+  }
+  if (ids.size === 0) return "—";
+  return [...ids].map((id) => getPartyName(id)).join(", ");
+};
 
-const statusBadge = (status: DebtStatus) =>
-  status === "Hoàn tất"
-    ? "bg-emerald-100 text-emerald-700 border-emerald-200"
-    : status === "Quá hạn"
-      ? "bg-red-100 text-red-700 border-red-200"
-      : "bg-amber-100 text-amber-700 border-amber-200";
+type OrderDebtRow = {
+  order: Order;
+  debt?: DebtItem;
+  costDebt?: DebtItem;
+};
 
 export const Route = createFileRoute("/vendors")({
   validateSearch: (search: Record<string, unknown>) => {
     const kind = search.kind;
     return {
-      kind: kind === "Phải thu" || kind === "Phải trả" ? kind : undefined,
+      kind: VENDOR_PAGE_KINDS.includes(kind as VendorPageKind) ? (kind as VendorPageKind) : undefined,
     };
   },
   component: DebtManagementPage,
@@ -112,316 +335,495 @@ export const Route = createFileRoute("/vendors")({
 
 function DebtManagementPage() {
   const { kind } = Route.useSearch();
+  const pageKind: VendorPageKind = kind ?? "Cập nhật chi phí";
+
+  const isCostUpdate = pageKind === "Cập nhật chi phí";
+  const isReceivable = pageKind === "Phải thu";
+  const isPayableDebt = pageKind === "Phải trả";
+  const isPaymentPage = isReceivable || isPayableDebt;
+  const listRecordType: DebtRecordType = isCostUpdate
+    ? "cost"
+    : isReceivable
+      ? "receivable"
+      : "payable";
+
+  const [orders, setOrders] = useState<Order[]>([]);
   const [debts, setDebts] = useState<DebtItem[]>([]);
   const [open, setOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [q, setQ] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [form, setForm] = useState({
-    waybill: "",
-    partyId: "",
-    amount: "",
-    dueDate: "",
-    kind: (kind ?? "Phải thu") as DebtKind,
-  });
+  const [paymentStatusFilter, setPaymentStatusFilter] = useState<string>("all");
+  const [form, setForm] = useState<CostBreakdownForm>(emptyCostBreakdownForm());
+
+  const totalCost = useMemo(() => sumBreakdownForm(form), [form]);
+
+  const reload = () => {
+    setOrders(getStoredOrders());
+    setDebts(getStoredDebts());
+  };
 
   useEffect(() => {
-    setDebts(getStoredDebts());
+    reload();
+    const onFocus = () => reload();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  useEffect(() => {
-    if (kind) {
-      setForm((current) => ({ ...current, kind: kind as DebtKind }));
-    }
-  }, [kind]);
-
-  const activeKind: DebtKind = (kind ?? "Phải thu") as DebtKind;
-
-  const filteredDebts = useMemo(
+  const rows: OrderDebtRow[] = useMemo(
     () =>
-      debts.filter((item) => {
-        if (item.kind !== activeKind) return false;
-        if (statusFilter !== "all" && item.status !== statusFilter) return false;
+      orders.map((order) => {
+        const debt = findDebtByType(debts, order, listRecordType);
+        const costDebt = findDebtByType(debts, order, "cost");
+        return { order, debt, costDebt };
+      }),
+    [orders, debts, listRecordType]
+  );
 
-        const needle = q.trim().toLowerCase();
-        if (
-          needle &&
-          !item.id.toLowerCase().includes(needle) &&
-          !item.waybill.toLowerCase().includes(needle) &&
-          !getPartyName(item).toLowerCase().includes(needle)
-        ) {
-          return false;
+  const getPaymentStatus = (debt?: DebtItem): PaymentStatus => debt?.paymentStatus ?? "Chưa thanh toán";
+
+  const getPayableAmount = (order: Order, costDebt?: DebtItem) => {
+    const total = costDebt ? sumBreakdownData(costDebt.costBreakdown) : 0;
+    return total > 0 ? total : costDebt?.amount ?? 0;
+  };
+
+  const filteredRows = useMemo(
+    () =>
+      rows.filter(({ order, debt, costDebt }) => {
+        if (isPaymentPage) {
+          const paymentStatus = getPaymentStatus(debt);
+          if (paymentStatusFilter !== "all" && paymentStatus !== paymentStatusFilter) return false;
         }
 
-        if (startDate && item.dueDate < startDate) return false;
-        if (endDate && item.dueDate > endDate) return false;
+        const needle = q.trim().toLowerCase();
+        if (!needle) return true;
 
-        return true;
+        if (isCostUpdate) {
+          const supplierSummary = costDebt ? getBreakdownSuppliersSummary(costDebt.costBreakdown) : "";
+          return (
+            order.code.toLowerCase().includes(needle) ||
+            order.client.toLowerCase().includes(needle) ||
+            supplierSummary.toLowerCase().includes(needle)
+          );
+        }
+
+        if (isPayableDebt) {
+          const supplierSummary = costDebt ? getBreakdownSuppliersSummary(costDebt.costBreakdown) : "";
+          return (
+            order.code.toLowerCase().includes(needle) ||
+            order.client.toLowerCase().includes(needle) ||
+            supplierSummary.toLowerCase().includes(needle)
+          );
+        }
+
+        return (
+          order.code.toLowerCase().includes(needle) || order.client.toLowerCase().includes(needle)
+        );
       }),
-    [debts, activeKind, statusFilter, q, startDate, endDate]
+    [rows, q, isCostUpdate, isPayableDebt, isPaymentPage, paymentStatusFilter]
   );
+
+  const updatePaymentStatus = (
+    order: Order,
+    recordType: "receivable" | "payable",
+    paymentStatus: PaymentStatus
+  ) => {
+    const existing = findDebtByType(debts, order, recordType);
+    const costDebt = findDebtByType(debts, order, "cost");
+    const amount =
+      recordType === "receivable" ? order.fee : getPayableAmount(order, costDebt);
+
+    const record: DebtItem = {
+      orderId: order.id,
+      waybill: order.code,
+      amount,
+      recordType,
+      kind: recordType === "receivable" ? "Phải thu" : "Phải trả",
+      paymentStatus,
+    };
+
+    const updated = existing
+      ? debts.map((d) => (d.recordType === recordType && matchOrderDebt(d, order) ? record : d))
+      : [...debts, record];
+
+    setDebts(updated);
+    saveStoredDebts(updated);
+    toast.success(`Đã cập nhật trạng thái thanh toán vận đơn ${order.code}`);
+  };
+
+  const updateBreakdownAmount = (key: CostLineKey, raw: string) => {
+    const numeric = raw.replace(/[^\d]/g, "");
+    const display = numeric ? Number(numeric).toLocaleString("en-US") : "";
+    setForm((current) => ({
+      ...current,
+      [key]: { ...current[key], amount: display },
+    }));
+  };
+
+  const updateBreakdownParty = (key: CostLineKey, partyId: string) => {
+    setForm((current) => ({
+      ...current,
+      [key]: { ...current[key], partyId },
+    }));
+  };
+
+  const openOrderModal = (order: Order) => {
+    if (!isCostUpdate) return;
+    const costDebt = findDebtByType(debts, order, "cost");
+    setActiveOrder(order);
+    setForm(breakdownDataToForm(costDebt?.costBreakdown));
+    setOpen(true);
+  };
+
+  const closeModal = () => {
+    setOpen(false);
+    setActiveOrder(null);
+    setForm(emptyCostBreakdownForm());
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!activeOrder) return;
 
-    if (!form.waybill.trim() || !form.partyId.trim() || !form.amount || !form.dueDate) {
-      toast.error("Vui lòng nhập đủ thông tin công nợ");
+    if (totalCost <= 0) {
+      toast.error("Vui lòng nhập ít nhất một khoản chi phí");
       return;
     }
 
-    const newDebt: DebtItem = {
-      id: `CN${String(debts.length + 1).padStart(3, "0")}`,
-      waybill: form.waybill.trim(),
-      partyId: form.partyId.trim(),
-      amount: Number(form.amount),
-      dueDate: form.dueDate,
-      kind: (kind ?? form.kind) as DebtKind,
-      status: "Đang xử lý",
+    const linesWithAmount = COST_LINE_KEYS.filter((key) => parseCostInput(form[key].amount) > 0);
+    const missingParty = linesWithAmount.find((key) => !form[key].partyId.trim());
+    if (missingParty) {
+      toast.error(`Vui lòng chọn nhà cung cấp cho hạng mục "${findCostLineLabel(missingParty)}"`);
+      return;
+    }
+
+    const breakdown = breakdownFormToData(form);
+    const existing = findDebtByType(debts, activeOrder, "cost");
+
+    const record: DebtItem = {
+      orderId: activeOrder.id,
+      waybill: activeOrder.code,
+      amount: totalCost,
+      recordType: "cost",
+      kind: "Cập nhật chi phí",
+      status: existing?.status && existing.status !== "Chưa nhập" ? existing.status : "Đang xử lý",
+      costBreakdown: breakdown,
     };
 
-    const updated = [...debts, newDebt];
-    setDebts(updated);
-    saveStoredDebts(updated);
-    toast.success(`Đã thêm công nợ ${newDebt.kind.toLowerCase()} cho vận đơn ${newDebt.waybill}`);
-    setForm({ waybill: "", partyId: "", amount: "", dueDate: "", kind: (kind ?? "Phải thu") as DebtKind });
-    setOpen(false);
-  };
+    const updated = existing
+      ? debts.map((d) => (d.recordType === "cost" && matchOrderDebt(d, activeOrder) ? record : d))
+      : [...debts, record];
 
-  const toggleStatus = (id: string) => {
-    const updated: DebtItem[] = debts.map((item) => {
-      if (item.id !== id) return item;
-      const next: DebtStatus =
-        item.status === "Đang xử lý" ? "Quá hạn" : item.status === "Quá hạn" ? "Hoàn tất" : "Đang xử lý";
-      return { ...item, status: next };
-    });
     setDebts(updated);
     saveStoredDebts(updated);
-  };
-
-  const deleteRow = (id: string) => {
-    const updated = debts.filter((item) => item.id !== id);
-    setDebts(updated);
-    saveStoredDebts(updated);
-    toast.success("Đã xoá công nợ");
+    toast.success(`Đã lưu chi phí cho vận đơn ${activeOrder.code}`);
+    closeModal();
   };
 
   return (
     <AppLayout>
       <div className="space-y-5 text-left">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-slate-900">Quản lý công nợ</h2>
-            <p className="text-sm text-slate-500">
-              {kind === "Phải trả"
-                ? "Bảng công nợ phải trả cho nhà cung cấp, có bộ lọc theo tình trạng thanh toán."
-                : "Bảng công nợ phải thu từ khách hàng, có bộ lọc theo tình trạng thanh toán."}
-            </p>
-          </div>
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button className="bg-primary text-white shadow-sm hover:bg-primary/95">
-                <Plus className="mr-1.5 h-4 w-4" />
-                Thêm công nợ
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="p-6 sm:max-w-lg">
-              <DialogHeader className="border-b pb-3">
-                <DialogTitle className="text-base font-bold text-slate-900">Thêm công nợ mới</DialogTitle>
-                <DialogDescription>Nhập vận đơn, khách hàng, số tiền, ngày đến hạn và loại công nợ.</DialogDescription>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4 py-3 text-left">
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">Vận đơn *</Label>
-                  <Input
-                    value={form.waybill}
-                    onChange={(e) => setForm({ ...form, waybill: e.target.value })}
-                    placeholder="VD: CRTO-2511025-01"
-                    className="h-9 text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">
-                    {kind === "Phải trả" ? "Nhà cung cấp *" : "Khách hàng *"}
-                  </Label>
-                  <Input
-                    value={form.partyId}
-                    onChange={(e) => setForm({ ...form, partyId: e.target.value })}
-                    placeholder={kind === "Phải trả" ? "VD: V07" : "VD: KH001"}
-                    className="h-9 text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">Số tiền *</Label>
-                  <Input
-                    type="number"
-                    value={form.amount}
-                    onChange={(e) => setForm({ ...form, amount: e.target.value })}
-                    placeholder="VD: 150000000"
-                    className="h-9 text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">Ngày đến hạn *</Label>
-                  <Input
-                    type="date"
-                    value={form.dueDate}
-                    onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
-                    className="h-9 text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">Loại công nợ *</Label>
-                  <Input value={kind ?? form.kind} readOnly className="h-9 bg-slate-50 text-sm" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">
-                    {kind === "Phải trả" ? "Mã nhà cung cấp / tên nhà cung cấp" : "Mã khách hàng / tên khách hàng"}
-                  </Label>
-                  <Select
-                    value={form.partyId}
-                    onValueChange={(value) => setForm({ ...form, partyId: value })}
-                  >
-                    <SelectTrigger className="h-9 text-sm">
-                      <SelectValue placeholder={kind === "Phải trả" ? "Chọn nhà cung cấp" : "Chọn khách hàng"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(kind === "Phải trả" ? vendors : clients).map((item) => (
-                        <SelectItem key={item.id} value={item.id}>
-                          {item.id} - {item.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <DialogFooter className="gap-2 border-t pt-3">
-                  <Button type="button" variant="outline" size="sm" onClick={() => setOpen(false)} className="h-8.5 text-xs font-semibold">
-                    Hủy
-                  </Button>
-                  <Button type="submit" size="sm" className="h-8.5 bg-primary text-xs font-semibold text-white hover:bg-primary/95">
-                    Lưu công nợ
-                  </Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
+        <div>
+          <h2 className="text-xl font-semibold text-slate-900">
+            {isCostUpdate
+              ? "Cập nhật chi phí"
+              : isReceivable
+                ? "Công nợ phải thu khách hàng"
+                : "Công nợ phải trả đối tác"}
+          </h2>
+          <p className="text-sm text-slate-500">
+            {isCostUpdate
+              ? "Danh sách vận đơn đồng bộ từ quản lý đơn hàng — bấm vào từng dòng để chọn nhà cung cấp và nhập chi phí."
+              : isReceivable
+                ? "Công nợ phải thu của khách hàng theo từng vận đơn — cập nhật trạng thái thanh toán trực tiếp trên bảng."
+                : "Công nợ phải trả cho tất cả đối tác theo từng vận đơn — số tiền lấy từ chi phí đã nhập, cập nhật trạng thái thanh toán trên bảng."}
+          </p>
         </div>
 
-        {/* Filters */}
+        {isCostUpdate && (
+        <Dialog open={open} onOpenChange={(isOpen) => !isOpen && closeModal()}>
+          <DialogContent className="!flex max-h-[92vh] w-[calc(100%-2rem)] max-w-4xl flex-col gap-0 overflow-hidden border-slate-200 p-0 sm:rounded-xl">
+            <DialogHeader className="border-b px-6 pb-3 pt-6">
+              <DialogTitle className="text-base font-bold text-slate-900">Nhập chi phí công nợ</DialogTitle>
+              <DialogDescription>
+                Chọn nhà cung cấp và nhập số tiền cho từng hạng mục — tổng chi phí tự động cập nhật.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col text-left">
+              <div className="space-y-4 overflow-y-auto px-6 py-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">Vận đơn</Label>
+                    <Input
+                      value={activeOrder?.code ?? ""}
+                      readOnly
+                      className="h-9 bg-slate-50 text-sm font-semibold"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700">Khách hàng</Label>
+                    <Input
+                      value={activeOrder?.client ?? ""}
+                      readOnly
+                      className="h-9 bg-slate-50 text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                    Bảng phân rã chi phí (Cost Breakdown)
+                  </Label>
+                  <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                    <table className="w-full border-collapse text-xs">
+                      <thead className="border-b border-slate-200 bg-slate-50 text-slate-600">
+                        <tr>
+                          <th className="px-3 py-2.5 text-left font-semibold">Hạng mục</th>
+                          <th className="w-[200px] px-3 py-2.5 text-left font-semibold">Nhà cung cấp</th>
+                          <th className="w-[140px] px-3 py-2.5 text-right font-semibold">Số tiền (VND)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {COST_GROUPS.map((group) => (
+                          <Fragment key={group.title}>
+                            <tr className={cn(group.bg, "border-y border-slate-200")}>
+                              <td colSpan={3} className="px-3 py-2 font-bold text-slate-800">
+                                {group.title}
+                              </td>
+                            </tr>
+                            {group.fields.map((field) => (
+                              <tr key={field.key} className="border-b border-slate-100 hover:bg-slate-50/50">
+                                <td className="px-3 py-2 pl-5 text-slate-700">{field.label}</td>
+                                <td className="px-3 py-2">
+                                  <Select
+                                    value={form[field.key].partyId}
+                                    onValueChange={(value) => updateBreakdownParty(field.key, value)}
+                                  >
+                                    <SelectTrigger className="h-8 text-xs">
+                                      <SelectValue placeholder="Chọn NCC" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {vendors.map((item) => (
+                                        <SelectItem key={item.id} value={item.id} className="text-xs">
+                                          {item.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <Input
+                                    type="text"
+                                    inputMode="numeric"
+                                    placeholder="0"
+                                    value={form[field.key].amount}
+                                    onChange={(e) => updateBreakdownAmount(field.key, e.target.value)}
+                                    className="h-8 border-slate-200 text-right text-xs tabular-nums"
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </Fragment>
+                        ))}
+                        <tr className="border-t-2 border-primary/20 bg-primary/5">
+                          <td colSpan={2} className="px-3 py-3 text-sm font-bold text-slate-900">
+                            Tổng chi phí (Total Cost)
+                          </td>
+                          <td className="px-3 py-3 text-right text-sm font-bold tabular-nums text-primary">
+                            {formatVND(totalCost)}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              <DialogFooter className="gap-2 border-t bg-white px-6 py-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={closeModal}
+                  className="h-8.5 text-xs font-semibold"
+                >
+                  Hủy
+                </Button>
+                <Button
+                  type="submit"
+                  size="sm"
+                  className="h-8.5 bg-primary text-xs font-semibold text-white hover:bg-primary/95"
+                >
+                  Lưu chi phí
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
+        )}
+
         <Card className="p-4">
-          <div className="flex flex-col gap-3 md:flex-row">
-            {/* Search */}
+          <div className={cn("flex flex-col gap-3", isPaymentPage && "md:flex-row")}>
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
-                placeholder="Tìm theo mã công nợ, vận đơn hoặc tên..."
+                placeholder="Tìm theo mã vận đơn hoặc khách hàng..."
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 className="h-10 pl-9 text-sm"
               />
             </div>
-
-            {/* Due date range filter */}
-            <div className="flex h-10 shrink-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 shadow-sm md:w-[280px]">
-              <CalendarIcon className="h-4 w-4 text-slate-400" />
-              <div className="flex flex-1 items-center justify-between gap-1.5">
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-[85px] cursor-pointer select-none border-none bg-transparent p-0 text-[11px] text-slate-700 outline-none"
-                  title="Hạn từ ngày"
-                />
-                <span className="font-light text-slate-300">đến</span>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-[85px] cursor-pointer select-none border-none bg-transparent p-0 text-[11px] text-slate-700 outline-none"
-                  title="Hạn đến ngày"
-                />
-              </div>
-            </div>
-
-            {/* Status filter */}
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="h-10 md:w-[210px]">
-                <Filter className="mr-1.5 h-3.5 w-3.5 text-slate-400" />
-                <SelectValue placeholder="Tình trạng thanh toán" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tất cả tình trạng</SelectItem>
-                {statusOptions.map((item) => (
-                  <SelectItem key={item} value={item}>
-                    {item}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {isPaymentPage && (
+              <Select value={paymentStatusFilter} onValueChange={setPaymentStatusFilter}>
+                <SelectTrigger className="h-10 md:w-[220px]">
+                  <Filter className="mr-1.5 h-3.5 w-3.5 text-slate-400" />
+                  <SelectValue placeholder="Trạng thái thanh toán" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tất cả trạng thái</SelectItem>
+                  {PAYMENT_STATUS_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </Card>
 
-        {/* Table — sticky header, only the rows scroll (~7 visible) */}
         <Card className="overflow-hidden border-slate-200 p-0 shadow-sm">
+          <div className="overflow-x-auto">
           <div className="max-h-[440px] overflow-y-auto">
-            <table className="w-full text-sm">
+            {isCostUpdate ? (
+            <table className="w-full min-w-[960px] text-sm">
               <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-600">
                 <tr>
-                  <th className="px-4 py-3 text-left">Mã</th>
-                  <th className="px-4 py-3 text-left">Vận đơn</th>
-                  <th className="px-4 py-3 text-left">{activeKind === "Phải trả" ? "Nhà cung cấp" : "Khách hàng"}</th>
-                  <th className="px-4 py-3 text-left">Loại công nợ</th>
-                  <th className="px-4 py-3 text-right">Số tiền</th>
-                  <th className="px-4 py-3 text-left">Tình trạng</th>
-                  <th className="px-4 py-3 text-left">Đến hạn</th>
-                  <th className="px-4 py-3 text-center">Xóa</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left">Vận đơn</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left">Khách hàng</th>
+                  {COST_GROUPS.map((group) => (
+                    <th key={group.columnLabel} className="whitespace-nowrap px-4 py-3 text-right">
+                      {group.columnLabel}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredDebts.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50/60">
-                    <td className="px-4 py-3 font-mono font-bold text-slate-500">{item.id}</td>
-                    <td className="px-4 py-3 font-semibold text-slate-800">{item.waybill}</td>
-                    <td className="px-4 py-3 font-semibold text-slate-600">{getPartyName(item)}</td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${kindBadge(item.kind)}`}>
-                        {item.kind}
-                      </span>
+                {filteredRows.map(({ order, costDebt }) => (
+                  <tr
+                    key={order.id}
+                    className="cursor-pointer transition-colors hover:bg-blue-50/40"
+                    onClick={() => openOrderModal(order)}
+                  >
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-xs font-bold text-primary">
+                      {order.code}
                     </td>
-                    <td className="px-4 py-3 text-right font-bold tabular-nums text-slate-900">{formatVND(item.amount)}</td>
-                    <td className="px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={() => toggleStatus(item.id)}
-                        className={`inline-flex min-w-[120px] justify-center rounded-full border px-3 py-1 text-[11px] font-semibold leading-none whitespace-nowrap transition-colors ${statusBadge(item.status)}`}
-                        title="Bấm để đổi tình trạng"
-                      >
-                        {item.status}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 font-semibold tabular-nums text-slate-600">{item.dueDate}</td>
-                    <td className="px-4 py-3 text-center">
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => deleteRow(item.id)}
-                        className="h-7 w-7 text-red-500 hover:bg-red-50 hover:text-red-700"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-800">{order.client}</td>
+                    {COST_GROUPS.map((group) => {
+                      const groupTotal = sumGroupBreakdown(costDebt?.costBreakdown, group);
+                      return (
+                        <td
+                          key={group.columnLabel}
+                          className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-slate-900"
+                        >
+                          {groupTotal > 0 ? formatVND(groupTotal) : "—"}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
-                {filteredDebts.length === 0 && (
+                {filteredRows.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-400">
-                      Không có dữ liệu công nợ phù hợp.
+                    <td colSpan={6} className="px-4 py-12 text-center text-sm text-slate-400">
+                      {orders.length === 0
+                        ? "Chưa có vận đơn. Tạo đơn hàng tại Quản lý Vận đơn để đồng bộ sang đây."
+                        : "Không có dữ liệu phù hợp."}
                     </td>
                   </tr>
                 )}
               </tbody>
             </table>
+            ) : (
+            <table className="w-full min-w-[720px] text-sm">
+              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-600">
+                <tr>
+                  <th className="whitespace-nowrap px-4 py-3 text-left">Vận đơn</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left">Khách hàng</th>
+                  {isPayableDebt && (
+                    <th className="whitespace-nowrap px-4 py-3 text-left">Đối tác</th>
+                  )}
+                  <th className="whitespace-nowrap px-4 py-3 text-right">
+                    {isReceivable ? "Số tiền phải thu" : "Số tiền phải trả"}
+                  </th>
+                  <th className="whitespace-nowrap px-4 py-3 text-left">Thanh toán</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredRows.map(({ order, debt, costDebt }) => {
+                  const paymentStatus = getPaymentStatus(debt);
+                  const amount = isReceivable
+                    ? order.fee
+                    : getPayableAmount(order, costDebt);
+                  return (
+                    <tr key={order.id} className="transition-colors hover:bg-slate-50/60">
+                      <td className="whitespace-nowrap px-4 py-3 font-mono text-xs font-bold text-primary">
+                        {order.code}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-800">{order.client}</td>
+                      {isPayableDebt && (
+                        <td
+                          className="max-w-[200px] truncate px-4 py-3 text-xs font-semibold text-slate-600"
+                          title={getBreakdownSuppliersSummary(costDebt?.costBreakdown)}
+                        >
+                          {getBreakdownSuppliersSummary(costDebt?.costBreakdown)}
+                        </td>
+                      )}
+                      <td className="whitespace-nowrap px-4 py-3 text-right font-bold tabular-nums text-slate-900">
+                        {amount > 0 ? formatVND(amount) : "—"}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <Select
+                          value={paymentStatus}
+                          onValueChange={(val) =>
+                            updatePaymentStatus(
+                              order,
+                              isReceivable ? "receivable" : "payable",
+                              val as PaymentStatus
+                            )
+                          }
+                        >
+                          <SelectTrigger
+                            className={cn(
+                              "h-9 min-w-[160px] border text-xs font-semibold shadow-sm",
+                              paymentStatusBadge(paymentStatus)
+                            )}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent align="start">
+                            {PAYMENT_STATUS_OPTIONS.map((option) => (
+                              <SelectItem key={option} value={option} className="text-xs">
+                                {option}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredRows.length === 0 && (
+                  <tr>
+                    <td colSpan={isPayableDebt ? 5 : 4} className="px-4 py-12 text-center text-sm text-slate-400">
+                      {orders.length === 0
+                        ? "Chưa có vận đơn. Tạo đơn hàng tại Quản lý Vận đơn để đồng bộ sang đây."
+                        : "Không có dữ liệu phù hợp."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            )}
+          </div>
           </div>
         </Card>
       </div>

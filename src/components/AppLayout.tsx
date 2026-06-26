@@ -3,13 +3,13 @@ import {
   LayoutDashboard,
   Package,
   Search,
-  Settings,
   Truck,
   Users,
   ShoppingBag,
   Wallet,
   UserCog,
   History,
+  Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -42,33 +42,50 @@ const navGroups = [
     items: [
       { to: "/vendors?kind=Phải thu", label: "Công nợ phải thu", icon: Wallet },
       { to: "/vendors?kind=Phải trả", label: "Công nợ phải trả", icon: Wallet },
+      { to: "/vendors?kind=Cập nhật chi phí", label: "Cập Nhật Chi phí", icon: Receipt },
     ],
   },
   {
     label: "Cấu hình",
     items: [
-      { to: "/settings", label: "Cấu hình chi phí", icon: Settings },
       { to: "/users", label: "Quản lý người dùng", icon: UserCog },
       { to: "/logs", label: "Lịch sử hệ thống", icon: History },
     ],
   },
 ];
 
-function NavItem({ item, pathname }: { item: NavItemType; pathname: string }) {
-  const active = pathname === item.to || pathname.startsWith(item.to + "/");
+function NavItem({
+  item,
+  pathname,
+  searchStr,
+}: {
+  item: NavItemType;
+  pathname: string;
+  searchStr: string;
+}) {
+  const [path, query = ""] = item.to.split("?");
+  const pathMatches = pathname === path || pathname.startsWith(path + "/");
+  let active = pathMatches && !query;
+
+  if (pathMatches && query) {
+    const expected = new URLSearchParams(query);
+    const current = new URLSearchParams(searchStr.startsWith("?") ? searchStr.slice(1) : searchStr);
+    active = [...expected.entries()].every(([key, value]) => current.get(key) === value);
+  }
+
   const Icon = item.icon;
 
   return (
     <Link
       to={item.to}
       className={cn(
-        "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+        "flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-medium leading-tight transition-colors",
         active
           ? "bg-primary/10 text-primary"
           : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
       )}
     >
-      <Icon className="h-4 w-4 shrink-0" />
+      <Icon className="h-3.5 w-3.5 shrink-0" />
       <span>{item.label}</span>
     </Link>
   );
@@ -76,40 +93,41 @@ function NavItem({ item, pathname }: { item: NavItemType; pathname: string }) {
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const searchStr = useRouterState({ select: (s) => s.location.searchStr });
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
-      <aside className="sticky top-0 flex h-screen w-72 shrink-0 flex-col border-r border-slate-200 bg-white">
-        <div className="flex h-16 items-center gap-2 border-b border-slate-200 px-5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
-            <Truck className="h-5 w-5 text-primary-foreground" />
+      <aside className="sticky top-0 flex h-screen w-[260px] shrink-0 flex-col border-r border-slate-200 bg-white">
+        <div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 px-3">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary">
+            <Truck className="h-3.5 w-3.5 text-primary-foreground" />
           </div>
-          <div>
-            <div className="text-sm font-semibold text-slate-900">Quocviet JR</div>
-            <div className="text-[11px] text-slate-500">TQ ↔ VN Logistics</div>
+          <div className="min-w-0">
+            <div className="truncate text-[13px] font-semibold leading-tight text-slate-900">Sợi Vàng Textile</div>
+            <div className="truncate text-[10px] leading-tight text-slate-500">Logistics</div>
           </div>
         </div>
 
-        <nav className="flex-1 space-y-5 overflow-y-auto p-3">
-          <div className="space-y-1">
-            <NavItem item={overviewItem} pathname={pathname} />
+        <nav className="min-h-0 flex-1 space-y-1.5 overflow-hidden px-2 py-1.5">
+          <div>
+            <NavItem item={overviewItem} pathname={pathname} searchStr={searchStr} />
           </div>
 
           {navGroups.map((group) => (
-            <div key={group.label} className="space-y-2">
-              <div className="px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            <div key={group.label}>
+              <div className="px-2.5 pb-0.5 pt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                 {group.label}
               </div>
-              <div className="space-y-1">
+              <div>
                 {group.items.map((item) => (
-                  <NavItem key={item.to} item={item} pathname={pathname} />
+                  <NavItem key={item.to} item={item} pathname={pathname} searchStr={searchStr} />
                 ))}
               </div>
             </div>
           ))}
         </nav>
 
-        <div className="border-t border-slate-200 p-4 text-xs text-slate-500">
+        <div className="shrink-0 border-t border-slate-200 px-3 py-2 text-[10px] text-slate-400">
           Prototype by Tanoshivietnam
         </div>
       </aside>

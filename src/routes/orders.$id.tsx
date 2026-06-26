@@ -27,13 +27,27 @@ import {
   orders as mockOrders,
   statusLabel,
   statusColor,
+  statusDot,
+  ORDER_STATUSES,
+  normalizeStatus,
   formatVND,
+  formatLogDate,
+  buildDemoOrderLogs,
   clients as mockClients,
   type OrderStatus,
   type GoodsItem,
+  type Order,
+  type OrderLog,
 } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+
+const ORDER_SPEC_UNITS = ["Conts", "Sacks", "Bags", "Rolls"] as const;
+type OrderSpecUnit = (typeof ORDER_SPEC_UNITS)[number];
+const DEFAULT_ORDER_UNIT: OrderSpecUnit = "Rolls";
+
+const normalizeOrderUnit = (unit?: string): OrderSpecUnit =>
+  ORDER_SPEC_UNITS.includes(unit as OrderSpecUnit) ? (unit as OrderSpecUnit) : DEFAULT_ORDER_UNIT;
 
 export const Route = createFileRoute("/orders/$id")({
   component: OrderDetail,
@@ -43,12 +57,12 @@ export const Route = createFileRoute("/orders/$id")({
 });
 
 // Helpers for localStorage persistence
-const getStoredOrders = () => {
+const getStoredOrders = (): Order[] => {
   if (typeof window === "undefined") return mockOrders;
   const stored = localStorage.getItem("viet_thao_orders");
   if (stored) {
     try {
-      return JSON.parse(stored);
+      return JSON.parse(stored) as Order[];
     } catch (e) {
       return mockOrders;
     }
@@ -57,9 +71,38 @@ const getStoredOrders = () => {
   return mockOrders;
 };
 
-const saveStoredOrders = (newOrders: any[]) => {
+const saveStoredOrders = (newOrders: Order[]) => {
   if (typeof window === "undefined") return;
   localStorage.setItem("viet_thao_orders", JSON.stringify(newOrders));
+};
+
+type StoredCustomer = {
+  id: string;
+  name: string;
+  contact?: string;
+  address?: string;
+  unitPrice?: number;
+  priceUnit?: string;
+};
+
+const getStoredCustomers = (): StoredCustomer[] => {
+  if (typeof window === "undefined") {
+    return mockClients.map((c) => ({ id: c.id, name: c.name, contact: c.contact ?? "—" }));
+  }
+  const stored = localStorage.getItem("viet_thao_customers");
+  if (stored) {
+    try {
+      return JSON.parse(stored) as StoredCustomer[];
+    } catch {
+      return mockClients.map((c) => ({ id: c.id, name: c.name, contact: c.contact ?? "—" }));
+    }
+  }
+  return mockClients.map((c) => ({ id: c.id, name: c.name, contact: c.contact ?? "—" }));
+};
+
+const saveStoredCustomers = (items: StoredCustomer[]) => {
+  if (typeof window === "undefined") return;
+  localStorage.setItem("viet_thao_customers", JSON.stringify(items));
 };
 
 function OrderDetail() {
@@ -76,30 +119,16 @@ function OrderDetail() {
   const [origin, setOrigin] = useState("Quảng Châu");
   const [destination, setDestination] = useState("Hà Nội");
   const [note, setNote] = useState("");
-  const [currentStatus, setCurrentStatus] = useState<OrderStatus>("dang_van_chuyen");
-  const [updatedAt, setUpdatedAt] = useState("");
+  const [orderLogs, setOrderLogs] = useState<OrderLog[]>([]);
+  const [currentStatus, setCurrentStatus] = useState<OrderStatus>("van_chuyen_noi_dia_tq");
 
   // Goods item dynamic list
   const [items, setItems] = useState<GoodsItem[]>([]);
   
   // Local list units & clients
-  const [localClients, setLocalClients] = useState<any[]>(() => {
-    if (typeof window === "undefined") return mockClients;
-    const stored = localStorage.getItem("viet_thao_clients");
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch (e) {
-        return mockClients;
-      }
-    }
-    return mockClients;
-  });
-  const [localUnits, setLocalUnits] = useState(["Bao", "Hộp", "Thùng", "Kg", "Cái", "PCL", "Cuộn", "Kiện"]);
+  const [localClients, setLocalClients] = useState<StoredCustomer[]>([]);
   const [newClientName, setNewClientName] = useState("");
   const [isAddingClient, setIsAddingClient] = useState(false);
-  const [showAddUnitRowId, setShowAddUnitRowId] = useState<string | null>(null);
-  const [newUnitValue, setNewUnitValue] = useState("");
 
   // Lightbox Receipt Gallery state matching Frame 16
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -109,6 +138,7 @@ function OrderDetail() {
   useEffect(() => {
     const list = getStoredOrders();
     setAllOrders(list);
+    setLocalClients(getStoredCustomers());
     const target = list.find((o) => o.id === id || o.code === id);
     if (target) {
       setOrder(target);
@@ -119,16 +149,16 @@ function OrderDetail() {
       setOrigin(target.origin ? target.origin.replace(", TQ", "").replace(", VN", "") : "Quảng Châu");
       setDestination(target.destination ? target.destination.replace(", TQ", "").replace(", VN", "") : "Hà Nội");
       setNote(target.note || "");
-      setCurrentStatus(target.status);
-      setUpdatedAt(target.updatedAt || "");
+      setOrderLogs(buildDemoOrderLogs(target));
+      setCurrentStatus(normalizeStatus(target.status));
       
       // Default mock items if none exist
       if (target.items && target.items.length > 0) {
         setItems(target.items);
       } else {
         setItems([
-          { id: "1", name: "bỉm bỉm", quantity: 1, unit: "PCL", weight: 267.23, volume: 8, shippingPrice: 120000000 },
-          { id: "2", name: "bỉm bỉm", quantity: 2, unit: "Bao", weight: 2700, volume: 1.2, shippingPrice: 2000000 }
+          { id: "1", name: "bỉm bỉm", quantity: 1, unit: "Rolls", weight: 267.23, volume: 8, shippingPrice: 120000000, extraFee: 0 },
+          { id: "2", name: "bỉm bỉm", quantity: 2, unit: "Sacks", weight: 2700, volume: 1.2, shippingPrice: 2000000, extraFee: 0 },
         ]);
       }
     }
@@ -154,13 +184,18 @@ function OrderDetail() {
       toast.error("Tên khách hàng không được để trống");
       return;
     }
-    const newId = `KH00${localClients.length + 1}`;
-    const newC = { id: newId, name: newClientName.trim(), debt: 0, overdue: 0 };
+    const newId = `KH${String(localClients.length + 1).padStart(3, "0")}`;
+    const newC: StoredCustomer = {
+      id: newId,
+      name: newClientName.trim(),
+      contact: "—",
+      address: "—",
+      unitPrice: 0,
+      priceUnit: "Rolls",
+    };
     const updated = [...localClients, newC];
     setLocalClients(updated);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("viet_thao_clients", JSON.stringify(updated));
-    }
+    saveStoredCustomers(updated);
     setSelectedClient(newC.name);
     setNewClientName("");
     setIsAddingClient(false);
@@ -170,7 +205,7 @@ function OrderDetail() {
   // Goods handlers
   const addItem = () => {
     const newId = Math.random().toString(36).substring(2, 9);
-    setItems([...items, { id: newId, name: "", quantity: 1, unit: "Bao", weight: 0, volume: 0, shippingPrice: 0, extraFee: 0 }]);
+    setItems([...items, { id: newId, name: "", quantity: 1, unit: DEFAULT_ORDER_UNIT, weight: 0, volume: 0, shippingPrice: 0, extraFee: 0 }]);
   };
 
   const removeItem = (rowId: string) => {
@@ -204,6 +239,21 @@ function OrderDetail() {
 
     const weightDescs = items.map(it => `${it.quantity} ${it.unit}`).join(", ");
 
+    const prevStatus = normalizeStatus(order.status);
+    const logDate = new Date().toISOString().split("T")[0];
+    let logs = [...orderLogs];
+    if (currentStatus !== prevStatus) {
+      logs = [
+        ...logs,
+        {
+          id: `log-${Date.now()}`,
+          type: "status_change" as const,
+          date: logDate,
+          status: currentStatus,
+        },
+      ];
+    }
+
     const updatedOrder = {
       ...order,
       code: customCode.trim() || order.code,
@@ -211,14 +261,15 @@ function OrderDetail() {
       clientId: localClients.find(c => c.name === selectedClient)?.id || "KH999",
       status: currentStatus,
       createdAt: receivedDate,
-      updatedAt: updatedAt,
       fee: totalCost,
       weight: weightDescs || `${totalWeight} kg`,
       origin: origin.includes("TQ") ? origin : `${origin}, TQ`,
       destination: destination.includes("VN") ? destination : `${destination}, VN`,
       items,
       note,
-      masterBill
+      masterBill,
+      logs,
+      updatedAt: currentStatus !== prevStatus ? logDate : (order.updatedAt || logDate),
     };
 
     const newOrdersList = allOrders.map((o) => (o.id === order.id ? updatedOrder : o));
@@ -232,7 +283,6 @@ function OrderDetail() {
   // Timeline mock update based on status
   const handleStatusChange = (val: OrderStatus) => {
     setCurrentStatus(val);
-    setUpdatedAt(new Date().toISOString().split("T")[0]);
   };
 
   // Photo gallery logic
@@ -269,31 +319,15 @@ function OrderDetail() {
           <div className="flex items-center gap-3">
             {/* Status dropdown */}
             <Select value={currentStatus} onValueChange={(val) => handleStatusChange(val as OrderStatus)}>
-              <SelectTrigger className={cn("h-9 text-xs font-semibold border shadow-sm px-3.5 rounded-lg w-[190px]", statusColor[currentStatus])}>
+              <SelectTrigger className={cn("h-9 text-xs font-semibold border shadow-sm px-3.5 rounded-lg min-w-[260px]", statusColor[currentStatus])}>
                 <SelectValue placeholder="Chọn trạng thái" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="dang_ve" className="text-xs">Đang về kho</SelectItem>
-                <SelectItem value="nhan_kho_tq" className="text-xs">Nhận tại kho TQ</SelectItem>
-                <SelectItem value="xuat_kho_tq" className="text-xs">Xuất kho TQ</SelectItem>
-                <SelectItem value="thong_quan" className="text-xs">Thông quan biên giới</SelectItem>
-                <SelectItem value="van_chuyen_vn" className="text-xs">Vận chuyển nội địa VN</SelectItem>
-                <SelectItem value="dang_van_chuyen" className="text-xs">Đang vận chuyển</SelectItem>
-                <SelectItem value="cho_giao" className="text-xs">Chờ giao</SelectItem>
-                <SelectItem value="hoan_thanh" className="text-xs">Đã hoàn thành</SelectItem>
+                {ORDER_STATUSES.map((s) => (
+                  <SelectItem key={s} value={s} className="text-xs">{statusLabel[s]}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
-
-            {/* Editable date updated */}
-            <div className="flex items-center gap-1.5 shrink-0 bg-slate-50 border rounded-lg px-2 py-1 shadow-sm border-slate-200">
-              <span className="text-[10px] text-slate-500 font-semibold uppercase tracking-wider pl-1">Ngày cập nhật:</span>
-              <input
-                type="date"
-                value={updatedAt}
-                onChange={(e) => setUpdatedAt(e.target.value)}
-                className="bg-transparent border-none outline-none text-slate-700 text-xs font-semibold select-none py-0.5 cursor-pointer w-[115px]"
-              />
-            </div>
           </div>
         </div>
 
@@ -473,73 +507,21 @@ function OrderDetail() {
                         />
                       </td>
                       <td className="px-3 py-2">
-                        {showAddUnitRowId === item.id ? (
-                          <div className="flex gap-1 items-center">
-                            <Input
-                              placeholder="Tên đơn vị..."
-                              value={newUnitValue}
-                              onChange={(e) => setNewUnitValue(e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  if (newUnitValue.trim()) {
-                                    if (!localUnits.includes(newUnitValue.trim())) {
-                                      setLocalUnits([...localUnits, newUnitValue.trim()]);
-                                    }
-                                    updateItem(item.id, "unit", newUnitValue.trim());
-                                  }
-                                  setShowAddUnitRowId(null);
-                                  setNewUnitValue("");
-                                }
-                              }}
-                              className="h-8 py-1 px-1.5 text-xs flex-1 min-w-[60px]"
-                              autoFocus
-                            />
-                            <Button
-                              type="button"
-                              size="icon"
-                              className="w-7 h-7 bg-emerald-600 text-white hover:bg-emerald-700 shrink-0"
-                              onClick={() => {
-                                if (newUnitValue.trim()) {
-                                  if (!localUnits.includes(newUnitValue.trim())) {
-                                    setLocalUnits([...localUnits, newUnitValue.trim()]);
-                                  }
-                                  updateItem(item.id, "unit", newUnitValue.trim());
-                                }
-                                setShowAddUnitRowId(null);
-                                setNewUnitValue("");
-                              }}
-                            >
-                              <Check className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <Select
-                            value={localUnits.includes(item.unit) ? item.unit : "Bao"}
-                            onValueChange={(val) => {
-                              if (val === "__custom__") {
-                                setShowAddUnitRowId(item.id);
-                                setNewUnitValue("");
-                              } else {
-                                updateItem(item.id, "unit", val);
-                              }
-                            }}
-                          >
-                            <SelectTrigger className="h-8 text-xs py-1 px-2.5">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {localUnits.map((u) => (
-                                <SelectItem key={u} value={u} className="text-xs">
-                                  {u}
-                                </SelectItem>
-                              ))}
-                              <SelectItem value="__custom__" className="text-xs text-blue-600 font-semibold hover:bg-blue-50/50">
-                                + Thêm đơn vị...
+                        <Select
+                          value={normalizeOrderUnit(item.unit)}
+                          onValueChange={(val) => updateItem(item.id, "unit", val)}
+                        >
+                          <SelectTrigger className="h-8 text-xs py-1 px-2.5">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ORDER_SPEC_UNITS.map((u) => (
+                              <SelectItem key={u} value={u} className="text-xs">
+                                {u}
                               </SelectItem>
-                            </SelectContent>
-                          </Select>
-                        )}
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </td>
                       <td className="px-3 py-2">
                         <Input
@@ -643,6 +625,51 @@ function OrderDetail() {
             onChange={(e) => setNote(e.target.value)} 
             className="text-xs min-h-[60px]"
           />
+        </div>
+
+        {/* Hành trình đơn hàng */}
+        <div className="space-y-3 pt-1">
+          <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Hành trình đơn hàng</h3>
+          <Card className="p-4 border-slate-200 shadow-sm">
+            <div className="space-y-0">
+              {orderLogs.map((log, idx) => {
+                const isStatusLog = log.type === "status_change" || log.type === "completed";
+                const logStatus = log.type === "completed" ? "da_giao_hang" : log.status;
+
+                return (
+                <div key={log.id} className="relative flex gap-3 pb-4 last:pb-0">
+                  {idx < orderLogs.length - 1 && (
+                    <div className="absolute left-[5px] top-3 bottom-0 w-px bg-slate-200" />
+                  )}
+                  <div
+                    className={cn(
+                      "relative z-10 mt-0.5 h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-white",
+                      log.type === "created" && "bg-slate-400",
+                      isStatusLog && logStatus && statusDot[logStatus]
+                    )}
+                  />
+                  <div className="flex flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="font-semibold text-slate-500 tabular-nums">{formatLogDate(log.date)}</span>
+                      <span className="text-slate-300 hidden sm:inline">·</span>
+                      {log.type === "created" && (
+                        <span className="font-medium text-slate-800">Tạo đơn hàng</span>
+                      )}
+                      {isStatusLog && logStatus && (
+                        <>
+                          <span className="text-slate-600">Cập nhật trạng thái:</span>
+                          <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-semibold border", statusColor[logStatus])}>
+                            {statusLabel[logStatus]}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+              })}
+            </div>
+          </Card>
         </div>
 
         {/* Form actions */}

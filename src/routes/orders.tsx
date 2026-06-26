@@ -16,7 +16,19 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Search, Plus, Filter, Trash2, Check, Calendar as CalendarIcon } from "lucide-react";
+import {
+  Popover,
+  PopoverContent,
+  PopoverAnchor,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Search, Plus, Filter, Trash2, Calendar as CalendarIcon } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -28,6 +40,12 @@ import {
   orders as mockOrders,
   statusLabel,
   statusColor,
+  statusDot,
+  ORDER_STATUSES,
+  normalizeStatus,
+  buildDemoOrderLogs,
+  getOrderUpdatedAt,
+  formatLogDate,
   formatVND,
   clients as mockClients,
   type OrderStatus,
@@ -47,7 +65,121 @@ interface GoodsItem {
   weight: number;
   volume: number;
   shippingPrice: number;
+  extraFee?: number;
 }
+
+type OrderCustomer = {
+  id: string;
+  name: string;
+  unitPrice?: number;
+  priceUnit?: string;
+};
+
+type CatalogProduct = {
+  id: string;
+  name: string;
+  category: string;
+  unit: string;
+};
+
+const ORDER_SPEC_UNITS = ["Conts", "Sacks", "Bags", "Rolls"] as const;
+type OrderSpecUnit = (typeof ORDER_SPEC_UNITS)[number];
+const DEFAULT_ORDER_UNIT: OrderSpecUnit = "Rolls";
+
+const normalizeOrderUnit = (unit?: string): OrderSpecUnit =>
+  ORDER_SPEC_UNITS.includes(unit as OrderSpecUnit) ? (unit as OrderSpecUnit) : DEFAULT_ORDER_UNIT;
+
+const DEMO_CUSTOMER_PRICING: Record<string, Pick<OrderCustomer, "unitPrice" | "priceUnit">> = {
+  KH001: { unitPrice: 85000, priceUnit: "Rolls" },
+  KH002: { unitPrice: 92000, priceUnit: "Sacks" },
+  KH003: { unitPrice: 78000, priceUnit: "Bags" },
+};
+
+const createEmptyItem = (): GoodsItem => ({
+  id: Math.random().toString(36).substring(2, 9),
+  name: "",
+  quantity: 1,
+  unit: DEFAULT_ORDER_UNIT,
+  weight: 0,
+  volume: 0,
+  shippingPrice: 0,
+  extraFee: 0,
+});
+
+const getStoredCustomers = (): OrderCustomer[] => {
+  if (typeof window === "undefined") {
+    return mockClients.map((c) => ({
+      id: c.id,
+      name: c.name,
+      ...DEMO_CUSTOMER_PRICING[c.id],
+    }));
+  }
+  const stored = localStorage.getItem("viet_thao_customers");
+  if (stored) {
+    try {
+      return (JSON.parse(stored) as OrderCustomer[]).map((item) => {
+        const demo = DEMO_CUSTOMER_PRICING[item.id];
+        return {
+          id: item.id,
+          name: item.name,
+          unitPrice: item.unitPrice && item.unitPrice > 0 ? item.unitPrice : demo?.unitPrice,
+          priceUnit: item.priceUnit ?? demo?.priceUnit,
+        };
+      });
+    } catch {
+      return mockClients.map((c) => ({
+        id: c.id,
+        name: c.name,
+        ...DEMO_CUSTOMER_PRICING[c.id],
+      }));
+    }
+  }
+  return mockClients.map((c) => ({
+    id: c.id,
+    name: c.name,
+    ...DEMO_CUSTOMER_PRICING[c.id],
+  }));
+};
+
+const DEMO_PRODUCTS: CatalogProduct[] = [
+  { id: "SP001", name: "Tai nghe Bluetooth", category: "Điện tử", unit: "Cái" },
+  { id: "SP002", name: "Cáp sạc Type-C", category: "Phụ kiện", unit: "Cái" },
+  { id: "SP003", name: "Thùng carton", category: "Vật tư", unit: "Thùng" },
+];
+
+const getStoredProducts = (): CatalogProduct[] => {
+  if (typeof window === "undefined") return DEMO_PRODUCTS;
+  const stored = localStorage.getItem("viet_thao_products");
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored) as CatalogProduct[];
+      return parsed.length > 0 ? parsed : DEMO_PRODUCTS;
+    } catch {
+      return DEMO_PRODUCTS;
+    }
+  }
+  return DEMO_PRODUCTS;
+};
+
+const applyCustomerPricing = (customer: OrderCustomer | undefined, currentItems: GoodsItem[]) => {
+  if (!customer?.unitPrice) return currentItems;
+  const defaultUnit = normalizeOrderUnit(customer.priceUnit);
+  return currentItems.map((item) => ({
+    ...item,
+    shippingPrice: customer.unitPrice!,
+    unit: defaultUnit,
+  }));
+};
+
+const createItemForCustomer = (customer: OrderCustomer | undefined): GoodsItem => {
+  const item = createEmptyItem();
+  if (!customer?.unitPrice) return item;
+  return {
+    ...item,
+    shippingPrice: customer.unitPrice,
+    unit: normalizeOrderUnit(customer.priceUnit),
+  };
+};
 
 // Helpers for localStorage persistence
 const getStoredOrders = () => {
@@ -95,12 +227,6 @@ function OrdersPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [open, setOpen] = useState(false);
 
-  // Bulk dialog states
-  const [openStatusModal, setOpenStatusModal] = useState(false);
-  const [openDateModal, setOpenDateModal] = useState(false);
-  const [bulkStatusValue, setBulkStatusValue] = useState<OrderStatus>("dang_van_chuyen");
-  const [bulkDateValue, setBulkDateValue] = useState(new Date().toISOString().split("T")[0]);
-
   // Form states for Create Modal
   const [receivedDate, setReceivedDate] = useState(new Date().toISOString().split("T")[0]);
   const [masterBill, setMasterBill] = useState("");
@@ -111,30 +237,15 @@ function OrdersPage() {
   const [note, setNote] = useState("");
 
   // Local lists for autocomplete / selection
-  const [localClients, setLocalClients] = useState<any[]>(() => {
-    if (typeof window === "undefined") return mockClients;
-    const stored = localStorage.getItem("viet_thao_clients");
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch (e) {
-        return mockClients;
-      }
-    }
-    return mockClients;
-  });
-  const [localUnits, setLocalUnits] = useState(["Bao", "Hộp", "Thùng", "Kg", "Cái"]);
-  const [newClientName, setNewClientName] = useState("");
-  const [isAddingClient, setIsAddingClient] = useState(false);
+  const [localClients, setLocalClients] = useState<OrderCustomer[]>(() => getStoredCustomers());
+  const [localProducts, setLocalProducts] = useState<CatalogProduct[]>([]);
+  const [clientQuery, setClientQuery] = useState("");
+  const [clientPopoverOpen, setClientPopoverOpen] = useState(false);
+  const [productPopoverRowId, setProductPopoverRowId] = useState<string | null>(null);
+  const [productQuery, setProductQuery] = useState("");
 
   // Goods item dynamic list
-  const [items, setItems] = useState<GoodsItem[]>([
-    { id: "1", name: "Cát vệ sinh mèo", quantity: 1, unit: "Bao", weight: 20, volume: 0.1, shippingPrice: 1500000 },
-    { id: "2", name: "Bỉm em bé", quantity: 2, unit: "Hộp", weight: 5, volume: 0.05, shippingPrice: 2150000 }
-  ]);
-
-  const [showAddUnitRowId, setShowAddUnitRowId] = useState<string | null>(null);
-  const [newUnitValue, setNewUnitValue] = useState("");
+  const [items, setItems] = useState<GoodsItem[]>([createEmptyItem()]);
 
   // Filters logic
   const filtered = allOrders.filter((o) => {
@@ -142,7 +253,7 @@ function OrdersPage() {
       o.code.toLowerCase().includes(q.toLowerCase()) ||
       o.client.toLowerCase().includes(q.toLowerCase());
     
-    const matchS = status === "all" || o.status === status;
+    const matchS = status === "all" || normalizeStatus(o.status) === status;
 
     // Date match
     let matchDate = true;
@@ -172,75 +283,100 @@ function OrdersPage() {
   };
 
   // Bulk Actions submissions
-  const handleBulkStatusUpdate = () => {
+  const handleBulkStatusUpdate = (newStatus: OrderStatus) => {
     if (selectedIds.length === 0) return;
-    
+
+    const logDate = new Date().toISOString().split("T")[0];
+
     const updated = allOrders.map((o) => {
-      if (selectedIds.includes(o.id)) {
-        return { 
-          ...o, 
-          status: bulkStatusValue,
-          updatedAt: new Date().toISOString().split("T")[0] // default update date is today
-        };
-      }
-      return o;
+      if (!selectedIds.includes(o.id)) return o;
+
+      const prevStatus = normalizeStatus(o.status);
+      if (prevStatus === newStatus) return o;
+
+      const logs = [
+        ...buildDemoOrderLogs(o),
+        {
+          id: `log-${Date.now()}-${o.id}`,
+          type: "status_change" as const,
+          date: logDate,
+          status: newStatus,
+        },
+      ];
+
+      return { ...o, status: newStatus, logs, updatedAt: logDate };
     });
 
     setAllOrders(updated);
     saveStoredOrders(updated);
     toast.success(`Đã cập nhật trạng thái hàng loạt cho ${selectedIds.length} vận đơn`, {
-      description: `Trạng thái mới: ${statusLabel[bulkStatusValue]}`
+      description: `Trạng thái mới: ${statusLabel[newStatus]}`
     });
     setSelectedIds([]);
-    setOpenStatusModal(false);
   };
 
-  const handleBulkDateUpdate = () => {
-    if (selectedIds.length === 0) return;
+  const handleRowStatusUpdate = (orderId: string, newStatus: OrderStatus) => {
+    const logDate = new Date().toISOString().split("T")[0];
 
-    const formattedDate = bulkDateValue.split("-").reverse().join("/"); // formatted display string e.g. "21/07/2026" or raw date "2026-07-21"
-    
     const updated = allOrders.map((o) => {
-      if (selectedIds.includes(o.id)) {
-        return { 
-          ...o, 
-          updatedAt: bulkDateValue
-        };
-      }
-      return o;
+      if (o.id !== orderId) return o;
+
+      const prevStatus = normalizeStatus(o.status);
+      if (prevStatus === newStatus) return o;
+
+      const logs = [
+        ...buildDemoOrderLogs(o),
+        {
+          id: `log-${Date.now()}-${o.id}`,
+          type: "status_change" as const,
+          date: logDate,
+          status: newStatus,
+        },
+      ];
+
+      return { ...o, status: newStatus, logs, updatedAt: logDate };
     });
 
     setAllOrders(updated);
     saveStoredOrders(updated);
-    toast.success(`Đã cập nhật Ngày cập nhật hàng loạt cho ${selectedIds.length} vận đơn`, {
-      description: `Ngày mới: ${bulkDateValue.split("-").reverse().join("/")}`
+    toast.success(`Đã cập nhật trạng thái vận đơn`, {
+      description: statusLabel[newStatus],
     });
-    setSelectedIds([]);
-    setOpenDateModal(false);
   };
 
-  // Client add handler
-  const handleAddClient = () => {
-    if (!newClientName.trim()) {
-      toast.error("Tên khách hàng không được để trống");
-      return;
-    }
-    const newId = `KH00${localClients.length + 1}`;
-    const newC = { id: newId, name: newClientName.trim(), debt: 0, overdue: 0 };
-    const updated = [...localClients, newC];
-    setLocalClients(updated);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("viet_thao_clients", JSON.stringify(updated));
-    }
-    setSelectedClient(newC.name);
-    setNewClientName("");
-    setIsAddingClient(false);
-    toast.success(`Đã thêm khách hàng mới: ${newC.name}`);
+  const filteredClients = localClients.filter((c) =>
+    c.name.toLowerCase().includes(clientQuery.trim().toLowerCase())
+  );
+
+  const selectedCustomer = localClients.find((c) => c.name === selectedClient);
+
+  const filteredProducts = localProducts.filter((product) => {
+    const needle = productQuery.trim().toLowerCase();
+    if (!needle) return true;
+    return (
+      product.name.toLowerCase().includes(needle) ||
+      product.category.toLowerCase().includes(needle) ||
+      product.unit.toLowerCase().includes(needle)
+    );
+  });
+
+  const selectCustomer = (customer: OrderCustomer) => {
+    setSelectedClient(customer.name);
+    setClientQuery(customer.name);
+    setClientPopoverOpen(false);
+    setItems((prev) => applyCustomerPricing(customer, prev));
+  };
+
+  const selectProduct = (rowId: string, product: CatalogProduct) => {
+    setItems((prev) =>
+      prev.map((item) => (item.id === rowId ? { ...item, name: product.name } : item))
+    );
+    setProductPopoverRowId(null);
+    setProductQuery("");
   };
 
   const addItem = () => {
-    const newId = Math.random().toString(36).substring(2, 9);
-    setItems([...items, { id: newId, name: "", quantity: 1, unit: "Bao", weight: 0, volume: 0, shippingPrice: 0 }]);
+    setItems((prev) => [...prev, createItemForCustomer(selectedCustomer)]);
   };
 
   const removeItem = (id: string) => {
@@ -264,30 +400,39 @@ function OrdersPage() {
   const totalUniqueItems = items.length;
   const totalUnits = items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
   const totalWeight = items.reduce((sum, item) => sum + (Number(item.weight) || 0) * (Number(item.quantity) || 1), 0);
-  const totalVolume = items.reduce((sum, item) => sum + (Number(item.volume) || 0) * (Number(item.quantity) || 1), 0);
-  const totalCost = items.reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.shippingPrice) || 0), 0);
+  const totalCost = items.reduce(
+    (sum, item) =>
+      sum +
+      (Number(item.quantity) || 0) * (Number(item.shippingPrice) || 0) +
+      (Number(item.extraFee) || 0),
+    0
+  );
 
   const resetForm = () => {
     setReceivedDate(new Date().toISOString().split("T")[0]);
     setMasterBill("");
     setCustomCode("");
     setSelectedClient("");
+    setClientQuery("");
+    setClientPopoverOpen(false);
+    setProductPopoverRowId(null);
+    setProductQuery("");
     setOrigin("Quảng Châu");
     setDestination("Hà Nội");
     setNote("");
-    setItems([
-      { id: "1", name: "Cát vệ sinh mèo", quantity: 1, unit: "Bao", weight: 20, volume: 0.1, shippingPrice: 1500000 },
-      { id: "2", name: "Bỉm em bé", quantity: 2, unit: "Hộp", weight: 5, volume: 0.05, shippingPrice: 2150000 }
-    ]);
+    setItems([createEmptyItem()]);
   };
 
   const handleOpenChange = (isOpen: boolean) => {
     setOpen(isOpen);
     if (isOpen) {
       setCustomCode("CRTO-" + Math.floor(1000000 + Math.random() * 9000000) + "-01");
-      if (localClients.length > 0 && !selectedClient) {
-        setSelectedClient(localClients[0].name);
-      }
+      setLocalClients(getStoredCustomers());
+      setLocalProducts(getStoredProducts());
+      setSelectedClient("");
+      setClientQuery("");
+      setClientPopoverOpen(false);
+      setItems([createEmptyItem()]);
     } else {
       resetForm();
     }
@@ -296,7 +441,7 @@ function OrdersPage() {
   const submit = (e: React.FormEvent, isDraft = false) => {
     e.preventDefault();
     if (!selectedClient) {
-      toast.error("Vui lòng chọn khách hàng");
+      toast.error("Vui lòng chọn khách hàng từ danh sách");
       return;
     }
 
@@ -311,7 +456,7 @@ function OrdersPage() {
       code,
       client: selectedClient,
       clientId: localClients.find(c => c.name === selectedClient)?.id || "KH999",
-      status: (isDraft ? "nhan_kho_tq" : "dang_van_chuyen") as OrderStatus,
+      status: "van_chuyen_noi_dia_tq" as OrderStatus,
       fee: totalCost,
       createdAt: receivedDate,
       updatedAt: "",
@@ -323,11 +468,10 @@ function OrdersPage() {
         "https://images.unsplash.com/photo-1450133064473-71024230f91b?auto=format&fit=crop&q=80&w=600"
       ],
       timeline: [
-        { label: "Nhận hàng tại kho TQ", location: origin, date: receivedDate.split("-").reverse().slice(0, 2).join("/"), done: true },
-        { label: "Xuất kho TQ", location: "Nam Ninh", date: "—", done: false },
-        { label: "Thông quan biên giới", location: "Hữu Nghị Quan", date: "—", done: false },
-        { label: "Vận chuyển nội địa VN", location: "Lạng Sơn → Hà Nội", date: "—", done: false },
-        { label: "Giao hàng cho khách", location: destination, date: "—", done: false },
+        { label: "Vận chuyển nội địa Trung Quốc", location: origin, date: receivedDate.split("-").reverse().slice(0, 2).join("/"), done: true },
+        { label: "Đang thông quan", location: "Hữu Nghị Quan", date: "—", done: false },
+        { label: "Hàng nhập Kho Hà Nội", location: "Hà Nội", date: "—", done: false },
+        { label: "Đang giao hàng", location: destination, date: "—", done: false },
       ],
       costs: [
         { id: "c1", type: "Vendor vận chuyển TQ" as const, vendor: "GZ Express", amount: totalCost * 0.4 },
@@ -335,7 +479,11 @@ function OrdersPage() {
       ],
       items,
       note,
-      masterBill
+      masterBill,
+      logs: [
+        { id: "log-created", type: "created" as const, date: receivedDate },
+        { id: "log-status-0", type: "status_change" as const, date: receivedDate, status: "van_chuyen_noi_dia_tq" as OrderStatus },
+      ],
     };
 
     const newOrdersList = [newOrder, ...allOrders];
@@ -364,7 +512,7 @@ function OrdersPage() {
                 <Plus className="w-4 h-4 mr-1.5" /> Tạo vận đơn
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-5xl max-h-[90vh] flex flex-col p-6 overflow-hidden">
+            <DialogContent className="sm:max-w-6xl max-h-[90vh] flex flex-col p-6 overflow-hidden">
               <DialogHeader className="pb-4 border-b">
                 <DialogTitle className="text-xl font-semibold text-slate-900">Tạo vận đơn mới</DialogTitle>
                 <DialogDescription>Nhập thông tin lô hàng và chi tiết các mặt hàng tuyến TQ – VN</DialogDescription>
@@ -408,67 +556,60 @@ function OrdersPage() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {/* Client Select / Quick Add */}
+                    {/* Client search — chỉ chọn từ danh mục khách hàng */}
                     <div className="space-y-1.5">
                       <Label className="text-xs font-semibold text-slate-700">Khách hàng <span className="text-red-500">*</span></Label>
-                      {isAddingClient ? (
-                        <div className="flex gap-1.5">
+                      <Popover open={clientPopoverOpen} onOpenChange={setClientPopoverOpen}>
+                        <PopoverAnchor asChild>
                           <Input
-                            placeholder="Tên khách mới..."
-                            value={newClientName}
-                            onChange={(e) => setNewClientName(e.target.value)}
-                            className="h-9 text-sm flex-1"
-                            autoFocus
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                handleAddClient();
-                              }
+                            placeholder="Tìm và chọn khách hàng..."
+                            value={clientQuery}
+                            onChange={(e) => {
+                              setClientQuery(e.target.value);
+                              setSelectedClient("");
+                              setClientPopoverOpen(true);
                             }}
+                            onFocus={() => setClientPopoverOpen(true)}
+                            className="h-9 text-sm"
+                            autoComplete="off"
                           />
-                          <Button 
-                            type="button" 
-                            size="icon" 
-                            onClick={handleAddClient} 
-                            className="h-9 w-9 bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
-                          >
-                            <Check className="w-4 h-4" />
-                          </Button>
-                          <Button 
-                            type="button" 
-                            variant="ghost" 
-                            onClick={() => { setIsAddingClient(false); setNewClientName(""); }}
-                            className="h-9 px-2 text-xs shrink-0 text-slate-500 hover:bg-slate-100"
-                          >
-                            Hủy
-                          </Button>
-                        </div>
-                      ) : (
-                        <div className="flex gap-1.5">
-                          <Select value={selectedClient} onValueChange={setSelectedClient}>
-                            <SelectTrigger className="h-9 text-sm flex-1">
-                              <SelectValue placeholder="Chọn khách hàng..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {localClients.map((c) => (
-                                <SelectItem key={c.id} value={c.name} className="text-sm">
-                                  {c.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="outline"
-                            className="h-9 w-9 border-blue-200 text-blue-600 hover:bg-blue-50 hover:text-blue-700 shrink-0"
-                            onClick={() => setIsAddingClient(true)}
-                            title="Thêm khách hàng mới"
-                          >
-                            <Plus className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      )}
+                        </PopoverAnchor>
+                        <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)]" align="start">
+                          <Command shouldFilter={false}>
+                            <CommandList>
+                              <CommandEmpty>Không tìm thấy khách hàng</CommandEmpty>
+                              <CommandGroup>
+                                {filteredClients.map((c) => (
+                                  <CommandItem
+                                    key={c.id}
+                                    value={c.name}
+                                    onSelect={() => selectCustomer(c)}
+                                    className="text-sm"
+                                  >
+                                    <div className="flex w-full items-center justify-between gap-2">
+                                      <span>{c.name}</span>
+                                      {c.unitPrice ? (
+                                        <span className="text-[11px] text-slate-500">
+                                          {c.unitPrice.toLocaleString("en-US")} VND/{c.priceUnit ?? "đv"}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                      {selectedCustomer?.unitPrice ? (
+                        <p className="text-[11px] text-slate-500">
+                          Đơn giá cấu hình:{" "}
+                          <span className="font-semibold text-primary">
+                            {selectedCustomer.unitPrice.toLocaleString("en-US")} VND/{selectedCustomer.priceUnit ?? "đv"}
+                          </span>
+                          {" "}— đã điền vào giá cước, có thể sửa từng dòng.
+                        </p>
+                      ) : null}
                     </div>
 
                     <div className="space-y-1.5">
@@ -509,30 +650,78 @@ function OrdersPage() {
 
                     <div className="border border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm">
                       <div className="overflow-x-auto">
-                        <table className="w-full text-xs text-left border-collapse">
+                        <table className="w-full min-w-[960px] text-xs text-left border-collapse">
                           <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
                             <tr>
-                              <th className="px-3 py-2.5 w-[30%]">Hàng hoá <span className="text-red-500">*</span></th>
-                              <th className="px-3 py-2.5 w-[10%] text-center">Số lượng</th>
-                              <th className="px-3 py-2.5 w-[15%]">Đơn vị</th>
-                              <th className="px-3 py-2.5 w-[12%]">K.Lượng (kg)</th>
-                              <th className="px-3 py-2.5 w-[12%]">Thể tích (m³)</th>
-                              <th className="px-3 py-2.5 w-[16%]">Giá cước (VND)</th>
-                              <th className="px-3 py-2.5 text-right w-[16%]">Thành tiền</th>
-                              <th className="px-3 py-2.5 text-center w-[8%]">Xóa</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap">Hàng hoá <span className="text-red-500">*</span></th>
+                              <th className="px-3 py-2.5 whitespace-nowrap text-center">Số lượng</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap">Đơn vị</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap">K.Lượng (kg)</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap text-right">Giá cước (VND)</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap text-right">Chi phí phát sinh (VND)</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap text-right">Thành tiền</th>
+                              <th className="px-3 py-2.5 whitespace-nowrap text-center">Xóa</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
                             {items.map((item) => (
                               <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
                                 <td className="px-3 py-2">
-                                  <Input 
-                                    value={item.name} 
-                                    onChange={(e) => updateItem(item.id, "name", e.target.value)} 
-                                    placeholder="Nhập tên hàng hoá..."
-                                    className="h-8 text-xs py-1 px-2.5"
-                                    required
-                                  />
+                                  <Popover
+                                    open={productPopoverRowId === item.id}
+                                    onOpenChange={(isOpen) => {
+                                      if (isOpen) {
+                                        setProductPopoverRowId(item.id);
+                                        setProductQuery(item.name);
+                                      } else if (productPopoverRowId === item.id) {
+                                        setProductPopoverRowId(null);
+                                        setProductQuery("");
+                                      }
+                                    }}
+                                  >
+                                    <PopoverAnchor asChild>
+                                      <Input
+                                        value={productPopoverRowId === item.id ? productQuery : item.name}
+                                        onChange={(e) => {
+                                          setProductQuery(e.target.value);
+                                          setProductPopoverRowId(item.id);
+                                          updateItem(item.id, "name", e.target.value);
+                                        }}
+                                        onFocus={() => {
+                                          setProductPopoverRowId(item.id);
+                                          setProductQuery(item.name);
+                                        }}
+                                        placeholder="Chọn hàng hoá..."
+                                        className="h-8 text-xs py-1 px-2.5"
+                                        required
+                                        autoComplete="off"
+                                      />
+                                    </PopoverAnchor>
+                                    <PopoverContent className="p-0 w-[var(--radix-popover-trigger-width)]" align="start">
+                                      <Command shouldFilter={false}>
+                                        <CommandList>
+                                          <CommandEmpty>Không tìm thấy sản phẩm trong danh mục</CommandEmpty>
+                                          <CommandGroup>
+                                            {filteredProducts.map((product) => (
+                                              <CommandItem
+                                                key={product.id}
+                                                value={product.name}
+                                                onSelect={() => selectProduct(item.id, product)}
+                                                className="text-xs"
+                                              >
+                                                <div className="flex w-full items-center justify-between gap-2">
+                                                  <span>{product.name}</span>
+                                                  <span className="text-[11px] text-slate-500">
+                                                    {product.category} · {product.unit}
+                                                  </span>
+                                                </div>
+                                              </CommandItem>
+                                            ))}
+                                          </CommandGroup>
+                                        </CommandList>
+                                      </Command>
+                                    </PopoverContent>
+                                  </Popover>
                                 </td>
                                 <td className="px-3 py-2">
                                   <Input 
@@ -545,73 +734,21 @@ function OrdersPage() {
                                   />
                                 </td>
                                 <td className="px-3 py-2">
-                                  {showAddUnitRowId === item.id ? (
-                                    <div className="flex gap-1 items-center">
-                                      <Input
-                                        placeholder="Tên đơn vị..."
-                                        value={newUnitValue}
-                                        onChange={(e) => setNewUnitValue(e.target.value)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Enter") {
-                                            e.preventDefault();
-                                            if (newUnitValue.trim()) {
-                                              if (!localUnits.includes(newUnitValue.trim())) {
-                                                setLocalUnits([...localUnits, newUnitValue.trim()]);
-                                              }
-                                              updateItem(item.id, "unit", newUnitValue.trim());
-                                            }
-                                            setShowAddUnitRowId(null);
-                                            setNewUnitValue("");
-                                          }
-                                        }}
-                                        className="h-8 py-1 px-1.5 text-xs flex-1 min-w-[60px]"
-                                        autoFocus
-                                      />
-                                      <Button
-                                        type="button"
-                                        size="icon"
-                                        className="w-7 h-7 bg-emerald-600 text-white hover:bg-emerald-700 shrink-0"
-                                        onClick={() => {
-                                          if (newUnitValue.trim()) {
-                                            if (!localUnits.includes(newUnitValue.trim())) {
-                                              setLocalUnits([...localUnits, newUnitValue.trim()]);
-                                            }
-                                            updateItem(item.id, "unit", newUnitValue.trim());
-                                          }
-                                          setShowAddUnitRowId(null);
-                                          setNewUnitValue("");
-                                        }}
-                                      >
-                                        <Check className="w-3.5 h-3.5" />
-                                      </Button>
-                                    </div>
-                                  ) : (
-                                    <Select
-                                      value={localUnits.includes(item.unit) ? item.unit : "Bao"}
-                                      onValueChange={(val) => {
-                                        if (val === "__custom__") {
-                                          setShowAddUnitRowId(item.id);
-                                          setNewUnitValue("");
-                                        } else {
-                                          updateItem(item.id, "unit", val);
-                                        }
-                                      }}
-                                    >
-                                      <SelectTrigger className="h-8 text-xs py-1 px-2.5">
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {localUnits.map((u) => (
-                                          <SelectItem key={u} value={u} className="text-xs">
-                                            {u}
-                                          </SelectItem>
-                                        ))}
-                                        <SelectItem value="__custom__" className="text-xs text-blue-600 font-semibold hover:bg-blue-50/50">
-                                          + Thêm đơn vị...
+                                  <Select
+                                    value={normalizeOrderUnit(item.unit)}
+                                    onValueChange={(val) => updateItem(item.id, "unit", val)}
+                                  >
+                                    <SelectTrigger className="h-8 text-xs py-1 px-2.5">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {ORDER_SPEC_UNITS.map((u) => (
+                                        <SelectItem key={u} value={u} className="text-xs">
+                                          {u}
                                         </SelectItem>
-                                      </SelectContent>
-                                    </Select>
-                                  )}
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
                                 </td>
                                 <td className="px-3 py-2">
                                   <Input 
@@ -625,27 +762,26 @@ function OrdersPage() {
                                 </td>
                                 <td className="px-3 py-2">
                                   <Input 
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    value={item.volume === 0 ? "" : item.volume} 
-                                    onChange={(e) => updateItem(item.id, "volume", Number(e.target.value) || 0)} 
-                                    className="h-8 text-xs py-1 px-2"
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={item.shippingPrice === 0 ? "" : item.shippingPrice.toLocaleString("en-US")} 
+                                    onChange={(e) => updateItem(item.id, "shippingPrice", Number(e.target.value.replace(/[^\d]/g, "")) || 0)} 
+                                    className="h-8 text-xs py-1 px-2 text-right"
+                                    required
                                   />
                                 </td>
                                 <td className="px-3 py-2">
                                   <Input 
-                                    type="number"
-                                    min="0"
-                                    step="1000"
-                                    value={item.shippingPrice === 0 ? "" : item.shippingPrice} 
-                                    onChange={(e) => updateItem(item.id, "shippingPrice", Number(e.target.value) || 0)} 
-                                    className="h-8 text-xs py-1 px-2"
-                                    required
+                                    type="text"
+                                    inputMode="numeric"
+                                    placeholder="0"
+                                    value={!item.extraFee ? "" : item.extraFee.toLocaleString("en-US")} 
+                                    onChange={(e) => updateItem(item.id, "extraFee", Number(e.target.value.replace(/[^\d]/g, "")) || 0)} 
+                                    className="h-8 text-xs py-1 px-2 text-right"
                                   />
                                 </td>
                                 <td className="px-3 py-2 text-right font-medium text-slate-800">
-                                  {formatVND(item.quantity * item.shippingPrice)}
+                                  {formatVND(item.quantity * item.shippingPrice + (item.extraFee || 0))}
                                 </td>
                                 <td className="px-3 py-2 text-center">
                                   <Button 
@@ -672,8 +808,6 @@ function OrdersPage() {
                           <span><strong className="text-slate-900">{totalUnits}</strong> đơn vị</span>
                           <span className="text-slate-300">|</span>
                           <span>Khối lượng: <strong className="text-slate-900">{totalWeight.toLocaleString("vi-VN")}</strong> kg</span>
-                          <span className="text-slate-300">|</span>
-                          <span>Thể tích: <strong className="text-slate-900">{totalVolume.toLocaleString("vi-VN")}</strong> m³</span>
                         </div>
                         
                         <div className="flex items-center gap-2 mt-2 sm:mt-0 ml-auto sm:ml-0">
@@ -767,14 +901,9 @@ function OrdersPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tất cả trạng thái</SelectItem>
-                <SelectItem value="dang_ve">Đang về kho</SelectItem>
-                <SelectItem value="nhan_kho_tq">Nhận tại kho TQ</SelectItem>
-                <SelectItem value="xuat_kho_tq">Xuất kho TQ</SelectItem>
-                <SelectItem value="thong_quan">Thông quan biên giới</SelectItem>
-                <SelectItem value="van_chuyen_vn">Vận chuyển nội địa VN</SelectItem>
-                <SelectItem value="dang_van_chuyen">Đang vận chuyển</SelectItem>
-                <SelectItem value="cho_giao">Chờ giao</SelectItem>
-                <SelectItem value="hoan_thanh">Đã hoàn thành</SelectItem>
+                {ORDER_STATUSES.map((s) => (
+                  <SelectItem key={s} value={s}>{statusLabel[s]}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -792,21 +921,20 @@ function OrdersPage() {
                 {/* Dropdown "Thực hiện hàng loạt" */}
                 <Select
                   value=""
-                  onValueChange={(val) => {
-                    if (val === "status") setOpenStatusModal(true);
-                    if (val === "date") setOpenDateModal(true);
-                  }}
+                  onValueChange={(val) => handleBulkStatusUpdate(val as OrderStatus)}
                 >
-                  <SelectTrigger className="w-[180px] bg-white h-8 text-xs font-semibold text-blue-700 border-blue-200 hover:bg-blue-50">
+                  <SelectTrigger className="w-[240px] bg-white h-8 text-xs font-semibold text-blue-700 border-blue-200 hover:bg-blue-50">
                     <SelectValue placeholder="Thực hiện hàng loạt" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="status" className="text-xs font-medium cursor-pointer">
-                      Thay đổi trạng thái
-                    </SelectItem>
-                    <SelectItem value="date" className="text-xs font-medium cursor-pointer">
-                      Ngày cập nhật
-                    </SelectItem>
+                    {ORDER_STATUSES.map((s) => (
+                      <SelectItem key={s} value={s} className="text-xs font-medium cursor-pointer">
+                        <span className="flex items-center gap-2">
+                          <span className={cn("w-2 h-2 rounded-full shrink-0", statusDot[s])} />
+                          {statusLabel[s]}
+                        </span>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 
@@ -823,13 +951,14 @@ function OrdersPage() {
           )}
         </Card>
 
-        {/* Orders Table Card — sticky header, only the rows scroll (~7 visible) */}
+        {/* Orders Table Card */}
         <Card className="overflow-hidden p-0 shadow-sm border-slate-200">
-          <div className="overflow-y-auto max-h-[440px]">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold border-b border-slate-200 sticky top-0 z-10">
+          <div className="overflow-x-auto">
+          <div className="max-h-[440px] overflow-y-auto">
+          <table className="w-full text-sm min-w-[960px]">
+            <thead className="bg-slate-50 text-slate-600 text-xs uppercase font-semibold border-b border-slate-200 sticky top-0 z-10 shadow-[0_1px_0_0_rgb(226_232_240)]">
               <tr>
-                <th className="px-4 py-3 text-center w-[5%]">
+                <th className="px-4 py-3 text-center w-[40px]">
                   <input 
                     type="checkbox"
                     checked={filtered.length > 0 && selectedIds.length === filtered.length}
@@ -837,13 +966,13 @@ function OrdersPage() {
                     className="rounded border-slate-300 text-primary focus:ring-primary h-4 w-4 cursor-pointer"
                   />
                 </th>
-                <th className="text-left px-4 py-3 font-medium w-[15%]">Mã vận đơn</th>
-                <th className="text-left px-4 py-3 font-medium w-[20%]">Khách hàng</th>
-                <th className="text-left px-4 py-3 font-medium w-[22%]">Lộ trình / Chi tiết</th>
-                <th className="text-right px-4 py-3 font-medium w-[13%]">Cước phí</th>
-                <th className="text-left px-4 py-3 font-medium w-[10%]">Ngày tạo</th>
-                <th className="text-left px-4 py-3 font-medium w-[10%]">Ngày cập nhật</th>
-                <th className="text-left px-4 py-3 font-medium w-[13%]">Trạng thái</th>
+                <th className="text-left px-4 py-3 font-medium whitespace-nowrap">Mã vận đơn</th>
+                <th className="text-left px-4 py-3 font-medium whitespace-nowrap">Tên khách hàng</th>
+                <th className="text-left px-4 py-3 font-medium whitespace-nowrap">Tổng số lượng</th>
+                <th className="text-right px-4 py-3 font-medium whitespace-nowrap">Thành tiền</th>
+                <th className="text-left px-4 py-3 font-medium whitespace-nowrap">Ngày nhận</th>
+                <th className="text-left px-4 py-3 font-medium whitespace-nowrap">Ngày cập nhật</th>
+                <th className="text-left px-4 py-3 font-medium whitespace-nowrap">Trạng thái</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -865,28 +994,44 @@ function OrdersPage() {
                     />
                   </td>
                   <td className="px-4 py-3">
-                    <span className="font-mono font-bold text-primary hover:underline hover:text-primary-hover">
+                    <span className="font-mono text-xs font-semibold text-primary hover:underline">
                       {o.code}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-slate-800 font-semibold">{o.client}</td>
-                  <td className="px-4 py-3 text-slate-500 text-xs">
-                    <div className="font-semibold text-slate-700">{o.origin} → {o.destination}</div>
-                    <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[200px]" title={o.weight}>
-                      {o.weight}
-                    </div>
+                  <td className="px-4 py-3 text-slate-800 font-semibold text-xs">{o.client}</td>
+                  <td className="px-4 py-3 text-slate-600 text-xs max-w-[180px] truncate" title={o.weight}>
+                    {o.weight || "—"}
                   </td>
-                  <td className="px-4 py-3 text-right text-slate-900 font-bold">{formatVND(o.fee)}</td>
-                  <td className="px-4 py-3 text-slate-600 text-xs">
-                    {o.createdAt ? o.createdAt.split("-").reverse().join("/") : "—"}
+                  <td className="px-4 py-3 text-right text-slate-900 font-semibold text-xs whitespace-nowrap">
+                    {o.fee.toLocaleString("en-US")} VND
                   </td>
-                  <td className="px-4 py-3 text-slate-600 text-xs">
-                    {o.updatedAt ? o.updatedAt.split("-").reverse().join("/") : "—"}
+                  <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">
+                    {o.createdAt ? formatLogDate(o.createdAt) : "—"}
                   </td>
-                  <td className="px-4 py-3">
-                    <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-semibold border inline-block whitespace-nowrap shadow-sm", statusColor[o.status as OrderStatus])}>
-                      {statusLabel[o.status as OrderStatus]}
-                    </span>
+                  <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">
+                    {formatLogDate(getOrderUpdatedAt(o)) || "—"}
+                  </td>
+                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                    <Select
+                      value={normalizeStatus(o.status)}
+                      onValueChange={(val) => handleRowStatusUpdate(o.id, val as OrderStatus)}
+                    >
+                      <SelectTrigger
+                        className={cn(
+                          "h-9 text-xs font-semibold border shadow-sm px-3.5 rounded-lg min-w-[260px]",
+                          statusColor[normalizeStatus(o.status)]
+                        )}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent align="start">
+                        {ORDER_STATUSES.map((s) => (
+                          <SelectItem key={s} value={s} className="text-xs">
+                            {statusLabel[s]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </td>
                 </tr>
               ))}
@@ -900,114 +1045,9 @@ function OrdersPage() {
             </tbody>
           </table>
           </div>
+          </div>
         </Card>
       </div>
-
-      {/* Bulk Status Update Modal Dialog matching Frame 12 */}
-      <Dialog open={openStatusModal} onOpenChange={setOpenStatusModal}>
-        <DialogContent className="sm:max-w-md p-6">
-          <DialogHeader className="pb-3 border-b">
-            <DialogTitle className="text-base font-bold text-slate-900">Thay đổi trạng thái</DialogTitle>
-          </DialogHeader>
-          <div className="py-4 space-y-3.5 text-left">
-            <div className="text-xs font-medium text-slate-500">
-              Cập nhật trạng thái cho {selectedIds.length} vận đơn đã chọn:
-            </div>
-            
-            <div className="grid grid-cols-1 gap-2.5">
-              {[
-                { val: "dang_van_chuyen", lbl: "Đang vận chuyển", dot: "bg-blue-500" },
-                { val: "nhan_kho_tq", lbl: "Nhận tại kho TQ", dot: "bg-yellow-500" },
-                { val: "xuat_kho_tq", lbl: "Xuất kho - vận chuyển nội địa TQ", dot: "bg-orange-500" },
-                { val: "thong_quan", lbl: "Thông quan biên giới", dot: "bg-red-500" },
-                { val: "van_chuyen_vn", lbl: "Vận chuyển nội địa VN", dot: "bg-purple-500" },
-                { val: "hoan_thanh", lbl: "Đã hoàn thành", dot: "bg-emerald-500" }
-              ].map((item) => (
-                <label 
-                  key={item.val} 
-                  className={cn(
-                    "flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer hover:bg-slate-50 transition-colors text-xs font-semibold text-slate-700",
-                    bulkStatusValue === item.val ? "border-primary bg-primary/5 text-primary" : "border-slate-200"
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="bulkStatus"
-                    value={item.val}
-                    checked={bulkStatusValue === item.val}
-                    onChange={() => setBulkStatusValue(item.val as OrderStatus)}
-                    className="h-4 w-4 text-primary focus:ring-primary border-slate-300"
-                  />
-                  <span className={cn("w-2.5 h-2.5 rounded-full", item.dot)} />
-                  <span>{item.lbl}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-          <DialogFooter className="pt-3 border-t gap-2 flex items-center justify-end">
-            <Button 
-              type="button" 
-              variant="outline" 
-              onClick={() => setOpenStatusModal(false)}
-              className="h-9 text-xs font-semibold px-4 text-slate-600"
-            >
-              Hủy
-            </Button>
-            <Button 
-              type="button" 
-              onClick={handleBulkStatusUpdate}
-              className="h-9 text-xs font-semibold bg-primary hover:bg-primary/95 text-white px-5 shadow-sm"
-            >
-              Cập nhật
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Bulk Date Update Modal Dialog matching Frame 13 */}
-      <Dialog open={openDateModal} onOpenChange={setOpenDateModal}>
-        <DialogContent className="sm:max-w-md p-6">
-          <DialogHeader className="pb-3 border-b">
-            <DialogTitle className="text-base font-bold text-slate-900">Ngày cập nhật</DialogTitle>
-          </DialogHeader>
-          <div className="py-4 space-y-4 text-left">
-            <div className="text-xs font-medium text-slate-500">
-              Chọn Ngày cập nhật mới cho {selectedIds.length} vận đơn đã chọn:
-            </div>
-            
-            <div className="space-y-1.5">
-              <Label htmlFor="bulkDateInput" className="text-xs font-semibold text-slate-700">Ngày cập nhật *</Label>
-              <div className="relative">
-                <Input
-                  id="bulkDateInput"
-                  type="date"
-                  value={bulkDateValue}
-                  onChange={(e) => setBulkDateValue(e.target.value)}
-                  className="h-10 text-sm font-semibold pl-10"
-                />
-                <CalendarIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              </div>
-            </div>
-          </div>
-          <DialogFooter className="pt-3 border-t gap-2 flex items-center justify-end">
-            <Button 
-              type="button" 
-              variant="outline" 
-              onClick={() => setOpenDateModal(false)}
-              className="h-9 text-xs font-semibold px-4 text-slate-600"
-            >
-              Hủy
-            </Button>
-            <Button 
-              type="button" 
-              onClick={handleBulkDateUpdate}
-              className="h-9 text-xs font-semibold bg-primary hover:bg-primary/95 text-white px-5 shadow-sm"
-            >
-              Cập nhật
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </AppLayout>
   );
 }

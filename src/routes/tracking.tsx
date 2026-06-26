@@ -1,18 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { Search, CheckCircle2, Circle, FileText, Package } from "lucide-react";
-import { orders, statusLabel, statusColor, type OrderStatus } from "@/lib/mock-data";
+import { Search, CheckCircle2, Circle, Package } from "lucide-react";
+import { statusLabel, statusColor, normalizeStatus, type Order } from "@/lib/mock-data";
+import { getStoredOrders } from "@/lib/debt-storage";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/tracking")({
@@ -26,8 +20,13 @@ export const Route = createFileRoute("/tracking")({
 });
 
 function TrackingPage() {
-  const [code, setCode] = useState("CTV-123456");
-  const [searched, setSearched] = useState("CTV-123456");
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [code, setCode] = useState("CRTO-2511025-01");
+  const [searched, setSearched] = useState("CRTO-2511025-01");
+
+  useEffect(() => {
+    setOrders(getStoredOrders());
+  }, []);
 
   const order = orders.find((o) => o.code.toLowerCase() === searched.toLowerCase());
 
@@ -36,7 +35,7 @@ function TrackingPage() {
       <div className="mx-auto max-w-3xl space-y-6">
         <div className="text-center">
           <h2 className="text-2xl font-semibold text-slate-900">Tra Cứu vận đơn</h2>
-          <p className="mt-1 text-sm text-slate-500">Nhập mã vận đơn (ví dụ: CTV-123456)</p>
+          <p className="mt-1 text-sm text-slate-500">Nhập mã vận đơn (ví dụ: CRTO-2511025-01)</p>
         </div>
 
         <Card className="p-5">
@@ -52,7 +51,7 @@ function TrackingPage() {
               <Input
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
-                placeholder="CTV-XXXXXX"
+                placeholder="CRTO-2511025-01"
                 className="h-11 pl-9"
               />
             </div>
@@ -72,12 +71,12 @@ function TrackingPage() {
                   {order.origin} → {order.destination} · {order.weight}
                 </div>
               </div>
-              <span className={cn("rounded-full border px-3 py-1 text-xs", statusColor[order.status as OrderStatus])}>
-                {statusLabel[order.status as OrderStatus]}
+              <span className={cn("rounded-full border px-3 py-1 text-xs", statusColor[normalizeStatus(order.status)])}>
+                {statusLabel[normalizeStatus(order.status)]}
               </span>
             </div>
 
-            <div className="relative mb-5">
+            <div className="relative">
               {order.timeline.map((step, idx) => (
                 <div key={idx} className="relative flex gap-4 pb-5 last:pb-0">
                   {idx < order.timeline.length - 1 && (
@@ -106,29 +105,6 @@ function TrackingPage() {
                 </div>
               ))}
             </div>
-
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button variant="outline" className="w-full">
-                  <FileText className="h-4 w-4" /> Xem biên bản ký nhận
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-2xl">
-                <DialogHeader>
-                  <DialogTitle>Biên bản ký nhận – {order.code}</DialogTitle>
-                </DialogHeader>
-                <div className="aspect-[4/3] overflow-hidden rounded-lg bg-slate-100">
-                  <img
-                    src={order.images[0] || "https://picsum.photos/seed/sign/800/600"}
-                    alt="Biên bản"
-                    className="h-full w-full object-cover"
-                  />
-                </div>
-                <p className="text-xs text-slate-500">
-                  Ký nhận bởi: Nguyễn Văn Khách · {order.timeline.at(-1)?.date}
-                </p>
-              </DialogContent>
-            </Dialog>
           </Card>
         ) : (
           <Card className="p-10 text-center">

@@ -1,34 +1,57 @@
 export type OrderStatus =
-  | "dang_ve"
-  | "dang_van_chuyen"
-  | "cho_giao"
-  | "hoan_thanh"
-  | "nhan_kho_tq"
-  | "xuat_kho_tq"
-  | "thong_quan"
-  | "van_chuyen_vn";
+  | "van_chuyen_noi_dia_tq"
+  | "dang_thong_quan"
+  | "nhap_kho_ha_noi"
+  | "dang_giao_hang"
+  | "da_giao_hang";
+
+export const ORDER_STATUSES: OrderStatus[] = [
+  "van_chuyen_noi_dia_tq",
+  "dang_thong_quan",
+  "nhap_kho_ha_noi",
+  "dang_giao_hang",
+  "da_giao_hang",
+];
 
 export const statusLabel: Record<OrderStatus, string> = {
-  dang_ve: "Đang về kho",
-  dang_van_chuyen: "Đang vận chuyển",
-  cho_giao: "Chờ giao",
-  hoan_thanh: "Đã hoàn thành",
-  nhan_kho_tq: "Nhận tại kho TQ",
-  xuat_kho_tq: "Xuất kho TQ",
-  thong_quan: "Thông quan biên giới",
-  van_chuyen_vn: "Vận chuyển nội địa VN",
+  van_chuyen_noi_dia_tq: "Vận chuyển nội địa Trung Quốc",
+  dang_thong_quan: "Đang thông quan",
+  nhap_kho_ha_noi: "Hàng nhập Kho Hà Nội",
+  dang_giao_hang: "Đang giao hàng",
+  da_giao_hang: "Đã giao hàng",
 };
 
 export const statusColor: Record<OrderStatus, string> = {
-  dang_ve: "bg-slate-100 text-slate-700 border-slate-200",
-  dang_van_chuyen: "bg-blue-100 text-blue-800 border-blue-200",
-  cho_giao: "bg-amber-100 text-amber-700 border-amber-200",
-  hoan_thanh: "bg-emerald-100 text-emerald-700 border-emerald-200",
-  nhan_kho_tq: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  xuat_kho_tq: "bg-orange-100 text-orange-800 border-orange-200",
-  thong_quan: "bg-red-100 text-red-800 border-red-200",
-  van_chuyen_vn: "bg-purple-100 text-purple-800 border-purple-200",
+  van_chuyen_noi_dia_tq: "bg-amber-100 text-amber-800 border-amber-200",
+  dang_thong_quan: "bg-orange-100 text-orange-800 border-orange-200",
+  nhap_kho_ha_noi: "bg-blue-100 text-blue-800 border-blue-200",
+  dang_giao_hang: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  da_giao_hang: "bg-slate-100 text-slate-800 border-slate-300",
 };
+
+export const statusDot: Record<OrderStatus, string> = {
+  van_chuyen_noi_dia_tq: "bg-amber-500",
+  dang_thong_quan: "bg-orange-500",
+  nhap_kho_ha_noi: "bg-blue-500",
+  dang_giao_hang: "bg-emerald-500",
+  da_giao_hang: "bg-slate-500",
+};
+
+const LEGACY_STATUS_MAP: Record<string, OrderStatus> = {
+  dang_ve: "van_chuyen_noi_dia_tq",
+  dang_van_chuyen: "van_chuyen_noi_dia_tq",
+  nhan_kho_tq: "van_chuyen_noi_dia_tq",
+  xuat_kho_tq: "van_chuyen_noi_dia_tq",
+  thong_quan: "dang_thong_quan",
+  van_chuyen_vn: "nhap_kho_ha_noi",
+  cho_giao: "dang_giao_hang",
+  hoan_thanh: "da_giao_hang",
+};
+
+export function normalizeStatus(status: string): OrderStatus {
+  if (status in statusLabel) return status as OrderStatus;
+  return LEGACY_STATUS_MAP[status] ?? "van_chuyen_noi_dia_tq";
+}
 
 export interface VendorCost {
   id: string;
@@ -56,6 +79,13 @@ export interface GoodsItem {
   extraFee?: number;   // VND - chi phí phát sinh
 }
 
+export interface OrderLog {
+  id: string;
+  type: "created" | "status_change" | "completed";
+  date: string;
+  status?: OrderStatus;
+}
+
 export interface Order {
   id: string;
   code: string;
@@ -74,6 +104,59 @@ export interface Order {
   items: GoodsItem[];
   note?: string;
   masterBill?: string;
+  logs?: OrderLog[];
+}
+
+const addDays = (dateStr: string, days: number): string => {
+  const d = new Date(dateStr + "T12:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+};
+
+export function formatLogDate(date: string): string {
+  if (!date) return "—";
+  const [y, m, d] = date.split("-");
+  if (!y || !m || !d) return date;
+  return `${d}/${m}/${y}`;
+}
+
+/** Demo hành trình — tạo đơn → cập nhật trạng thái → đã giao hàng */
+export function buildDemoOrderLogs(
+  order: Pick<Order, "createdAt" | "status" | "logs">
+): OrderLog[] {
+  if (order.logs && order.logs.length > 0) {
+    return order.logs.map((log) =>
+      log.type === "completed"
+        ? { ...log, type: "status_change" as const, status: "da_giao_hang" as OrderStatus }
+        : log
+    );
+  }
+
+  const created = order.createdAt || new Date().toISOString().split("T")[0];
+  const currentIdx = ORDER_STATUSES.indexOf(normalizeStatus(order.status));
+  const dayOffsets = [0, 2, 5, 8, 11, 14];
+
+  const logs: OrderLog[] = [{ id: "log-created", type: "created", date: created }];
+
+  for (let i = 0; i <= currentIdx; i++) {
+    logs.push({
+      id: `log-status-${i}`,
+      type: "status_change",
+      date: addDays(created, dayOffsets[i] ?? i * 2),
+      status: ORDER_STATUSES[i],
+    });
+  }
+
+  return logs;
+}
+
+export function getOrderUpdatedAt(
+  order: Pick<Order, "createdAt" | "updatedAt" | "status" | "logs">
+): string {
+  if (order.updatedAt) return order.updatedAt;
+  const logs = buildDemoOrderLogs(order);
+  const last = logs[logs.length - 1];
+  return last?.date || order.createdAt || "";
 }
 
 const img = (seed: string) =>
@@ -93,7 +176,7 @@ export const orders: Order[] = [
     code: "CRTO-2511025-01",
     client: "NGUYEN TIEN MINH",
     clientId: "KH001",
-    status: "dang_van_chuyen",
+    status: "van_chuyen_noi_dia_tq",
     fee: 150000000,
     createdAt: "2026-07-21",
     updatedAt: "",
@@ -120,13 +203,17 @@ export const orders: Order[] = [
       { id: "c1", type: "Vendor vận chuyển TQ", vendor: "GZ Express", amount: 60000000 },
       { id: "c2", type: "Vendor thông quan", vendor: "Hải quan Hữu Nghị", amount: 22500000 },
     ],
+    logs: [
+      { id: "l1", type: "created", date: "2026-07-21" },
+      { id: "l2", type: "status_change", date: "2026-07-21", status: "van_chuyen_noi_dia_tq" },
+    ],
   },
   {
     id: "2",
     code: "CRTO-2511025-02",
     client: "NGUYEN TIEN MINH",
     clientId: "KH001",
-    status: "van_chuyen_vn",
+    status: "nhap_kho_ha_noi",
     fee: 36000000,
     createdAt: "2026-07-21",
     updatedAt: "",
@@ -150,13 +237,19 @@ export const orders: Order[] = [
       { id: "c1", type: "Vendor vận chuyển TQ", vendor: "GZ Express", amount: 12000000 },
       { id: "c2", type: "Nhà xe VN", vendor: "Vận tải Minh Long", amount: 5000000 },
     ],
+    logs: [
+      { id: "l1", type: "created", date: "2026-07-18" },
+      { id: "l2", type: "status_change", date: "2026-07-18", status: "van_chuyen_noi_dia_tq" },
+      { id: "l3", type: "status_change", date: "2026-07-20", status: "dang_thong_quan" },
+      { id: "l4", type: "status_change", date: "2026-07-23", status: "nhap_kho_ha_noi" },
+    ],
   },
   {
     id: "3",
     code: "CRTO-2511025-03",
     client: "NGUYEN TIEN MINH",
     clientId: "KH001",
-    status: "thong_quan",
+    status: "dang_thong_quan",
     fee: 120000000,
     createdAt: "2026-07-20",
     updatedAt: "",
@@ -183,7 +276,7 @@ export const orders: Order[] = [
     code: "CRTO-2511025-04",
     client: "NGUYEN THI HANH",
     clientId: "KH002",
-    status: "dang_van_chuyen",
+    status: "van_chuyen_noi_dia_tq",
     fee: 150000000,
     createdAt: "2026-07-21",
     updatedAt: "",
@@ -210,7 +303,7 @@ export const orders: Order[] = [
     code: "CRTO-2511025-05",
     client: "NGUYEN TIEN MINH",
     clientId: "KH001",
-    status: "nhan_kho_tq",
+    status: "van_chuyen_noi_dia_tq",
     fee: 150000000,
     createdAt: "2026-07-21",
     updatedAt: "2026-07-21",
@@ -234,10 +327,10 @@ export const orders: Order[] = [
     code: "CRTO-2511025-06",
     client: "NGUYEN TIEN MINH",
     clientId: "KH001",
-    status: "hoan_thanh",
+    status: "da_giao_hang",
     fee: 100000000,
     createdAt: "2026-07-21",
-    updatedAt: "2026-07-21",
+    updatedAt: "2026-07-24",
     weight: "50 Cuộn, 2 Kiện",
     origin: "Quảng Châu, TQ",
     destination: "Hà Nội, VN",
@@ -252,13 +345,21 @@ export const orders: Order[] = [
       { label: "Giao hàng cho khách", location: "Hà Nội", date: "21/07", done: true }
     ],
     costs: [],
+    logs: [
+      { id: "l1", type: "created", date: "2026-07-15" },
+      { id: "l2", type: "status_change", date: "2026-07-15", status: "van_chuyen_noi_dia_tq" },
+      { id: "l3", type: "status_change", date: "2026-07-17", status: "dang_thong_quan" },
+      { id: "l4", type: "status_change", date: "2026-07-20", status: "nhap_kho_ha_noi" },
+      { id: "l5", type: "status_change", date: "2026-07-22", status: "dang_giao_hang" },
+      { id: "l6", type: "status_change", date: "2026-07-24", status: "da_giao_hang" },
+    ],
   },
   {
     id: "7",
     code: "CRTO-2511025-07",
     client: "NGUYEN TIEN MINH",
     clientId: "KH001",
-    status: "dang_van_chuyen",
+    status: "van_chuyen_noi_dia_tq",
     fee: 150000000,
     createdAt: "2026-07-21",
     updatedAt: "",
