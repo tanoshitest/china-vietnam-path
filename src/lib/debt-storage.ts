@@ -45,15 +45,10 @@ export const inferDebtRecordType = (
   return null;
 };
 
+import { getLocalOrders } from "@/lib/order-storage";
+
 export function getStoredOrders(): Order[] {
-  if (typeof window === "undefined") return mockOrders;
-  const stored = localStorage.getItem("viet_thao_orders");
-  if (!stored) return mockOrders;
-  try {
-    return JSON.parse(stored) as Order[];
-  } catch {
-    return mockOrders;
-  }
+  return getLocalOrders();
 }
 
 export function getStoredDebts(): StoredDebtRecord[] {

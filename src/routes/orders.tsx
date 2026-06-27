@@ -52,6 +52,7 @@ import {
 } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { orderBelongsToClient, useAppRole } from "@/lib/app-role";
+import { loadAllOrders, persistOrdersList } from "@/lib/order-storage";
 
 export const Route = createFileRoute("/orders")({
   component: OrdersPage,
@@ -83,12 +84,16 @@ type CatalogProduct = {
   unit: string;
 };
 
-const ORDER_SPEC_UNITS = ["Conts", "Sacks", "Bags", "Rolls"] as const;
-type OrderSpecUnit = (typeof ORDER_SPEC_UNITS)[number];
-const DEFAULT_ORDER_UNIT: OrderSpecUnit = "Rolls";
+const PRODUCT_UNITS = ["Cái", "Cuộn", "Thùng"] as const;
+type ProductUnit = (typeof PRODUCT_UNITS)[number];
 
-const normalizeOrderUnit = (unit?: string): OrderSpecUnit =>
-  ORDER_SPEC_UNITS.includes(unit as OrderSpecUnit) ? (unit as OrderSpecUnit) : DEFAULT_ORDER_UNIT;
+const normalizeProductUnit = (unit?: string): ProductUnit =>
+  PRODUCT_UNITS.includes(unit as ProductUnit) ? (unit as ProductUnit) : "Cái";
+
+const resolveProductUnit = (name: string, products: CatalogProduct[]): string => {
+  const matched = products.find((p) => p.name.toLowerCase() === name.trim().toLowerCase());
+  return matched ? normalizeProductUnit(matched.unit) : "";
+};
 
 const DEMO_CUSTOMER_PRICING: Record<string, Pick<OrderCustomer, "unitPrice" | "priceUnit">> = {
   KH001: { unitPrice: 85000, priceUnit: "Rolls" },
@@ -100,7 +105,7 @@ const createEmptyItem = (): GoodsItem => ({
   id: Math.random().toString(36).substring(2, 9),
   name: "",
   quantity: 1,
-  unit: DEFAULT_ORDER_UNIT,
+  unit: "",
   weight: 0,
   volume: 0,
   shippingPrice: 0,
@@ -164,11 +169,9 @@ const getStoredProducts = (): CatalogProduct[] => {
 
 const applyCustomerPricing = (customer: OrderCustomer | undefined, currentItems: GoodsItem[]) => {
   if (!customer?.unitPrice) return currentItems;
-  const defaultUnit = normalizeOrderUnit(customer.priceUnit);
   return currentItems.map((item) => ({
     ...item,
     shippingPrice: customer.unitPrice!,
-    unit: defaultUnit,
   }));
 };
 
@@ -178,28 +181,14 @@ const createItemForCustomer = (customer: OrderCustomer | undefined): GoodsItem =
   return {
     ...item,
     shippingPrice: customer.unitPrice,
-    unit: normalizeOrderUnit(customer.priceUnit),
   };
 };
 
 // Helpers for localStorage persistence
-const getStoredOrders = () => {
-  if (typeof window === "undefined") return mockOrders;
-  const stored = localStorage.getItem("viet_thao_orders");
-  if (stored) {
-    try {
-      return JSON.parse(stored);
-    } catch (e) {
-      return mockOrders;
-    }
-  }
-  localStorage.setItem("viet_thao_orders", JSON.stringify(mockOrders));
-  return mockOrders;
-};
+const loadOrders = () => loadAllOrders();
 
-const saveStoredOrders = (newOrders: any[]) => {
-  if (typeof window === "undefined") return;
-  localStorage.setItem("viet_thao_orders", JSON.stringify(newOrders));
+const saveStoredOrders = async (newOrders: any[]) => {
+  await persistOrdersList(newOrders);
 };
 
 function OrdersPage() {
@@ -213,9 +202,9 @@ function OrdersPage() {
     return <Outlet />;
   }
 
-  // Load from localStorage on mount
+  // Load orders on mount
   useEffect(() => {
-    setAllOrders(getStoredOrders());
+    void loadOrders().then(setAllOrders);
   }, []);
 
   const [q, setQ] = useState("");
@@ -314,7 +303,7 @@ function OrdersPage() {
     });
 
     setAllOrders(updated);
-    saveStoredOrders(updated);
+    void saveStoredOrders(updated).catch(() => toast.error("Lưu Supabase thất bại"));
     toast.success(`Đã cập nhật trạng thái hàng loạt cho ${selectedIds.length} vận đơn`, {
       description: `Trạng thái mới: ${statusLabel[newStatus]}`
     });
@@ -344,7 +333,7 @@ function OrdersPage() {
     });
 
     setAllOrders(updated);
-    saveStoredOrders(updated);
+    void saveStoredOrders(updated).catch(() => toast.error("Lưu Supabase thất bại"));
     toast.success(`Đã cập nhật trạng thái vận đơn`, {
       description: statusLabel[newStatus],
     });
@@ -375,7 +364,16 @@ function OrdersPage() {
 
   const selectProduct = (rowId: string, product: CatalogProduct) => {
     setItems((prev) =>
-      prev.map((item) => (item.id === rowId ? { ...item, name: product.name } : item))
+      prev.map((item) =>
+        item.id === rowId
+          ? {
+              ...item,
+              name: product.name,
+              unit: normalizeProductUnit(product.unit),
+              shippingPrice: selectedCustomer?.unitPrice ?? item.shippingPrice,
+            }
+          : item,
+      ),
     );
     setProductPopoverRowId(null);
     setProductQuery("");
@@ -395,10 +393,15 @@ function OrdersPage() {
 
   const updateItem = (id: string, field: keyof GoodsItem, value: any) => {
     setItems(items.map((item) => {
-      if (item.id === id) {
-        return { ...item, [field]: value };
+      if (item.id !== id) return item;
+      if (field === "name") {
+        return {
+          ...item,
+          name: value,
+          unit: resolveProductUnit(String(value), localProducts),
+        };
       }
-      return item;
+      return { ...item, [field]: value };
     }));
   };
 
@@ -494,7 +497,7 @@ function OrdersPage() {
 
     const newOrdersList = [newOrder, ...allOrders];
     setAllOrders(newOrdersList);
-    saveStoredOrders(newOrdersList);
+    void saveStoredOrders(newOrdersList).catch(() => toast.error("Lưu Supabase thất bại"));
     
     toast.success(isDraft ? `Đã lưu nháp vận đơn ${code}` : `Đã tạo thành công vận đơn ${code}`, {
       description: `Khách hàng: ${selectedClient} - Cước phí: ${formatVND(totalCost)}`
@@ -747,21 +750,13 @@ function OrdersPage() {
                                   />
                                 </td>
                                 <td className="px-3 py-2">
-                                  <Select
-                                    value={normalizeOrderUnit(item.unit)}
-                                    onValueChange={(val) => updateItem(item.id, "unit", val)}
-                                  >
-                                    <SelectTrigger className="h-8 text-xs py-1 px-2.5">
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      {ORDER_SPEC_UNITS.map((u) => (
-                                        <SelectItem key={u} value={u} className="text-xs">
-                                          {u}
-                                        </SelectItem>
-                                      ))}
-                                    </SelectContent>
-                                  </Select>
+                                  <Input
+                                    value={item.unit || "—"}
+                                    readOnly
+                                    disabled
+                                    tabIndex={-1}
+                                    className="h-8 text-xs py-1 px-2.5 bg-slate-50 cursor-default opacity-100 font-semibold text-slate-600"
+                                  />
                                 </td>
                                 <td className="px-3 py-2">
                                   <Input 

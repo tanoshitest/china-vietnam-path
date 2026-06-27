@@ -22,7 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Tag, Trash2, Search, Filter } from "lucide-react";
+import { Plus, Trash2, Search, Filter } from "lucide-react";
 
 export const Route = createFileRoute("/products")({
   component: ProductsPage,
@@ -37,6 +37,11 @@ type Product = {
 };
 
 const productCategories = ["Điện tử", "Phụ kiện", "Vật tư", "Hàng khác"];
+const PRODUCT_UNITS = ["Cái", "Cuộn", "Thùng"] as const;
+type ProductUnit = (typeof PRODUCT_UNITS)[number];
+
+const normalizeProductUnit = (unit?: string): ProductUnit =>
+  PRODUCT_UNITS.includes(unit as ProductUnit) ? (unit as ProductUnit) : "Cái";
 
 const categoryBadge = (category: string) =>
   category === "Điện tử"
@@ -75,6 +80,8 @@ const saveStoredProducts = (items: Product[]) => {
 function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState({ name: "", unit: "" });
   const [q, setQ] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [form, setForm] = useState({
@@ -99,7 +106,7 @@ function ProductsPage() {
       id: `SP${String(products.length + 1).padStart(3, "0")}`,
       name: form.name.trim(),
       category: form.category,
-      unit: form.unit.trim() || "Cái",
+      unit: normalizeProductUnit(form.unit),
     };
 
     const updated = [...products, newProduct];
@@ -114,7 +121,47 @@ function ProductsPage() {
     const updated = products.filter((item) => item.id !== id);
     setProducts(updated);
     saveStoredProducts(updated);
+    if (editingId === id) {
+      setEditingId(null);
+      setEditDraft({ name: "", unit: "" });
+    }
     toast.success(`Đã xoá sản phẩm: ${name}`);
+  };
+
+  const startEditing = (item: Product) => {
+    setEditingId(item.id);
+    setEditDraft({ name: item.name, unit: normalizeProductUnit(item.unit) });
+  };
+
+  const cancelEditing = () => {
+    setEditingId(null);
+    setEditDraft({ name: "", unit: "" });
+  };
+
+  const handleSaveEdit = (id: string) => {
+    const name = editDraft.name.trim();
+    const unit = normalizeProductUnit(editDraft.unit);
+
+    if (!name) {
+      toast.error("Tên sản phẩm không được để trống");
+      return;
+    }
+
+    const current = products.find((item) => item.id === id);
+    if (!current) return;
+
+    if (current.name === name && current.unit === unit) {
+      cancelEditing();
+      return;
+    }
+
+    const updated = products.map((item) =>
+      item.id === id ? { ...item, name, unit } : item,
+    );
+    setProducts(updated);
+    saveStoredProducts(updated);
+    cancelEditing();
+    toast.success(`Đã cập nhật sản phẩm: ${name}`);
   };
 
   const filteredProducts = products.filter((item) => {
@@ -196,16 +243,21 @@ function ProductsPage() {
                     <Label htmlFor="product-unit" className="text-xs font-semibold text-slate-700">
                       Đơn vị tính
                     </Label>
-                    <div className="relative">
-                      <Input
-                        id="product-unit"
-                        placeholder="VD: Cái, Thùng, Bộ"
-                        value={form.unit}
-                        onChange={(e) => setForm({ ...form, unit: e.target.value })}
-                        className="h-9 pl-9 text-sm"
-                      />
-                      <Tag className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                    </div>
+                    <Select
+                      value={normalizeProductUnit(form.unit)}
+                      onValueChange={(value) => setForm({ ...form, unit: value })}
+                    >
+                      <SelectTrigger id="product-unit" className="h-9 text-sm">
+                        <SelectValue placeholder="Chọn đơn vị" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {PRODUCT_UNITS.map((unit) => (
+                          <SelectItem key={unit} value={unit}>
+                            {unit}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <DialogFooter className="gap-2 border-t pt-3">
@@ -274,29 +326,106 @@ function ProductsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredProducts.map((item) => (
-                  <tr key={item.id} className="transition-colors hover:bg-slate-50/60">
+                {filteredProducts.map((item) => {
+                  const isEditing = editingId === item.id;
+
+                  return (
+                  <tr
+                    key={item.id}
+                    className={`transition-colors ${isEditing ? "bg-blue-50/60" : "cursor-pointer hover:bg-slate-50/60"}`}
+                    onClick={() => {
+                      if (!isEditing) startEditing(item);
+                    }}
+                  >
                     <td className="px-4 py-3 font-mono font-bold text-slate-500">{item.id}</td>
-                    <td className="px-4 py-3 font-bold text-slate-800">{item.name}</td>
+                    <td className="px-4 py-3 font-bold text-slate-800">
+                      {isEditing ? (
+                        <Input
+                          value={editDraft.name}
+                          onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleSaveEdit(item.id);
+                            }
+                            if (e.key === "Escape") cancelEditing();
+                          }}
+                          className="h-8 text-sm font-semibold"
+                          autoFocus
+                        />
+                      ) : (
+                        item.name
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold ${categoryBadge(item.category)}`}>
                         {item.category}
                       </span>
                     </td>
-                    <td className="px-4 py-3 font-semibold text-slate-600">{item.unit}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-600">
+                      {isEditing ? (
+                        <Select
+                          value={normalizeProductUnit(editDraft.unit)}
+                          onValueChange={(value) => setEditDraft({ ...editDraft, unit: value })}
+                        >
+                          <SelectTrigger
+                            className="h-8 text-sm font-semibold"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {PRODUCT_UNITS.map((unit) => (
+                              <SelectItem key={unit} value={unit} className="text-sm">
+                                {unit}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        normalizeProductUnit(item.unit)
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-center">
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => handleDelete(item.id, item.name)}
-                        className="h-7 w-7 text-red-500 hover:bg-red-50 hover:text-red-700"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      {isEditing ? (
+                        <div className="flex items-center justify-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => handleSaveEdit(item.id)}
+                            className="h-7 px-2.5 text-[11px] font-semibold"
+                          >
+                            Lưu
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={cancelEditing}
+                            className="h-7 px-2.5 text-[11px] font-semibold"
+                          >
+                            Hủy
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(item.id, item.name);
+                          }}
+                          className="h-7 w-7 text-red-500 hover:bg-red-50 hover:text-red-700"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
                 {filteredProducts.length === 0 && (
                   <tr>
                     <td colSpan={5} className="px-4 py-14 text-center text-sm text-slate-400">

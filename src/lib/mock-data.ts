@@ -77,13 +77,81 @@ export interface GoodsItem {
   volume: number;      // m3
   shippingPrice: number; // VND
   extraFee?: number;   // VND - chi phí phát sinh
+  note?: string;       // ghi chú theo dòng hàng hóa
 }
 
 export interface OrderLog {
   id: string;
-  type: "created" | "status_change" | "completed";
+  type: "created" | "status_change" | "completed" | "field_change" | "manual";
   date: string;
   status?: OrderStatus;
+  message?: string;
+  itemName?: string;
+  fieldLabel?: string;
+  oldValue?: string;
+  newValue?: string;
+}
+
+export function createOrderLogId(): string {
+  return `log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+export function todayLogDate(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
+export function buildItemFieldChangeLog(
+  itemName: string,
+  fieldLabel: string,
+  oldValue: string,
+  newValue: string,
+): OrderLog {
+  const label = itemName.trim() || "—";
+  return {
+    id: createOrderLogId(),
+    type: "field_change",
+    date: todayLogDate(),
+    message: `Cập nhật ${fieldLabel} hàng hoá "${label}": ${oldValue || "(trống)"} → ${newValue || "(trống)"}`,
+    itemName: label,
+    fieldLabel,
+    oldValue,
+    newValue,
+  };
+}
+
+export function buildManualOrderLog(message: string): OrderLog {
+  return {
+    id: createOrderLogId(),
+    type: "manual",
+    date: todayLogDate(),
+    message: message.trim(),
+  };
+}
+
+export interface OrderAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  url: string;
+}
+
+export function isImageAttachment(attachment: Pick<OrderAttachment, "mimeType" | "url">): boolean {
+  if (attachment.mimeType.startsWith("image/")) return true;
+  return /\.(jpe?g|png|gif|webp|bmp|svg)(\?|$)/i.test(attachment.url);
+}
+
+export function getOrderAttachments(
+  order: Pick<Order, "images" | "attachments">,
+): OrderAttachment[] {
+  if (order.attachments && order.attachments.length > 0) {
+    return order.attachments;
+  }
+  return (order.images ?? []).map((url, idx) => ({
+    id: `legacy-img-${idx}`,
+    name: `Ảnh ${idx + 1}`,
+    mimeType: "image/jpeg",
+    url,
+  }));
 }
 
 export interface Order {
@@ -99,6 +167,7 @@ export interface Order {
   origin: string;
   destination: string;
   images: string[];
+  attachments?: OrderAttachment[];
   timeline: TimelineStep[];
   costs: VendorCost[];
   items: GoodsItem[];
