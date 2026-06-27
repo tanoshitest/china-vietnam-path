@@ -29,6 +29,7 @@ import {
   type Order,
 } from "@/lib/mock-data";
 import {
+  getCostBreakdownEntryAmount,
   getStoredDebts,
   getStoredOrders,
   inferDebtRecordType,
@@ -176,12 +177,12 @@ const getSupplierAmountFromBreakdown = (
   breakdown: StoredDebtRecord["costBreakdown"],
   supplier: Supplier,
   supplierList: Supplier[]
-) => {
+): number => {
   if (!breakdown) return 0;
-  return Object.values(breakdown).reduce((sum, value) => {
+  return Object.values(breakdown).reduce<number>((sum, value) => {
     if (typeof value === "number") return sum;
-    const amount = value?.amount ?? 0;
-    const partyId = value?.partyId ?? "";
+    const amount = getCostBreakdownEntryAmount(value);
+    const partyId = typeof value === "object" && value ? value.partyId ?? "" : "";
     if (amount <= 0 || !supplierMatchesPartyId(supplier, partyId, supplierList)) return sum;
     return sum + amount;
   }, 0);

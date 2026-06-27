@@ -1,13 +1,35 @@
 name: Deploy to Cloudflare Workers
 
-# Auto-deploys on every push to main. Also runnable manually from the Actions tab.
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
   deploy:
+    needs: build
+    if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -29,5 +51,4 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          # Optional: only needed if your API token can access more than one account.
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

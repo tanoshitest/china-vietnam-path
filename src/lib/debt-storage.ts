@@ -10,6 +10,14 @@ export type StoredDebtRecord = {
   costBreakdown?: Record<string, number | { amount?: number; partyId?: string }>;
 };
 
+export type CostBreakdownValue = number | { amount?: number; partyId?: string };
+
+export function getCostBreakdownEntryAmount(value: CostBreakdownValue | undefined): number {
+  if (typeof value === "number") return value;
+  if (value && typeof value === "object") return value.amount ?? 0;
+  return 0;
+}
+
 export type EbtRow = {
   orderId: string;
   orderCode: string;
@@ -24,11 +32,10 @@ const matchOrder = (debt: StoredDebtRecord, order: Order) =>
 
 const sumCostBreakdown = (breakdown?: StoredDebtRecord["costBreakdown"]) => {
   if (!breakdown) return 0;
-  return Object.values(breakdown).reduce((sum, val) => {
-    if (typeof val === "number") return sum + val;
-    if (val && typeof val === "object") return sum + (val.amount ?? 0);
-    return sum;
-  }, 0);
+  return Object.values(breakdown).reduce<number>(
+    (sum, val) => sum + getCostBreakdownEntryAmount(val),
+    0,
+  );
 };
 
 export const inferDebtRecordType = (
