@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate, useLocation, Outlet } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
@@ -52,7 +52,11 @@ import {
 } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import { orderBelongsToClient, useAppRole } from "@/lib/app-role";
-import { loadAllOrders, persistOrdersList } from "@/lib/order-storage";
+import { getLocalOrders, loadAllOrders, persistOrder, persistOrdersBatch } from "@/lib/order-storage";
+import { getLocalCustomers, loadAllCustomers } from "@/lib/customer-storage";
+import { getLocalProducts, loadAllProducts } from "@/lib/product-storage";
+import { isDateInRange } from "@/lib/order-date";
+import { useTmsPageLoader } from "@/lib/use-tms-page-loader";
 
 export const Route = createFileRoute("/orders")({
   component: OrdersPage,
@@ -120,31 +124,15 @@ const getStoredCustomers = (): OrderCustomer[] => {
       ...DEMO_CUSTOMER_PRICING[c.id],
     }));
   }
-  const stored = localStorage.getItem("viet_thao_customers");
-  if (stored) {
-    try {
-      return (JSON.parse(stored) as OrderCustomer[]).map((item) => {
-        const demo = DEMO_CUSTOMER_PRICING[item.id];
-        return {
-          id: item.id,
-          name: item.name,
-          unitPrice: item.unitPrice && item.unitPrice > 0 ? item.unitPrice : demo?.unitPrice,
-          priceUnit: item.priceUnit ?? demo?.priceUnit,
-        };
-      });
-    } catch {
-      return mockClients.map((c) => ({
-        id: c.id,
-        name: c.name,
-        ...DEMO_CUSTOMER_PRICING[c.id],
-      }));
-    }
-  }
-  return mockClients.map((c) => ({
-    id: c.id,
-    name: c.name,
-    ...DEMO_CUSTOMER_PRICING[c.id],
-  }));
+  return getLocalCustomers().map((item) => {
+    const demo = DEMO_CUSTOMER_PRICING[item.id];
+    return {
+      id: item.id,
+      name: item.name,
+      unitPrice: item.unitPrice && item.unitPrice > 0 ? item.unitPrice : demo?.unitPrice,
+      priceUnit: item.priceUnit ?? demo?.priceUnit,
+    };
+  });
 };
 
 const DEMO_PRODUCTS: CatalogProduct[] = [
@@ -155,16 +143,8 @@ const DEMO_PRODUCTS: CatalogProduct[] = [
 
 const getStoredProducts = (): CatalogProduct[] => {
   if (typeof window === "undefined") return DEMO_PRODUCTS;
-  const stored = localStorage.getItem("viet_thao_products");
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored) as CatalogProduct[];
-      return parsed.length > 0 ? parsed : DEMO_PRODUCTS;
-    } catch {
-      return DEMO_PRODUCTS;
-    }
-  }
-  return DEMO_PRODUCTS;
+  const parsed = getLocalProducts();
+  return parsed.length > 0 ? parsed : DEMO_PRODUCTS;
 };
 
 const applyCustomerPricing = (customer: OrderCustomer | undefined, currentItems: GoodsItem[]) => {
@@ -187,25 +167,24 @@ const createItemForCustomer = (customer: OrderCustomer | undefined): GoodsItem =
 // Helpers for localStorage persistence
 const loadOrders = () => loadAllOrders();
 
-const saveStoredOrders = async (newOrders: any[]) => {
-  await persistOrdersList(newOrders);
-};
-
 function OrdersPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isClient, client } = useAppRole();
   const [allOrders, setAllOrders] = useState<any[]>([]);
 
+  const hydrateFromLocal = useCallback(() => {
+    setAllOrders(getLocalOrders());
+  }, []);
+
+  const syncFromRemote = useCallback(() => loadAllOrders().then(setAllOrders), []);
+
+  useTmsPageLoader(hydrateFromLocal, syncFromRemote);
+
   // If navigating to detail route, render Outlet directly
   if (location.pathname !== "/orders" && location.pathname !== "/orders/") {
     return <Outlet />;
   }
-
-  // Load orders on mount
-  useEffect(() => {
-    void loadOrders().then(setAllOrders);
-  }, []);
 
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>("all");
@@ -229,7 +208,14 @@ function OrdersPage() {
 
   // Local lists for autocomplete / selection
   const [localClients, setLocalClients] = useState<OrderCustomer[]>(() => getStoredCustomers());
-  const [localProducts, setLocalProducts] = useState<CatalogProduct[]>([]);
+  const [localProducts, setLocalProducts] = useState<CatalogProduct[]>(() => getStoredProducts());
+
+  useEffect(() => {
+    void Promise.all([loadAllCustomers(), loadAllProducts()]).then(() => {
+      setLocalClients(getStoredCustomers());
+      setLocalProducts(getStoredProducts());
+    });
+  }, []);
   const [clientQuery, setClientQuery] = useState("");
   const [clientPopoverOpen, setClientPopoverOpen] = useState(false);
   const [productPopoverRowId, setProductPopoverRowId] = useState<string | null>(null);
@@ -249,13 +235,7 @@ function OrdersPage() {
       o.client.toLowerCase().includes(q.toLowerCase());
     
     const matchS = status === "all" || normalizeStatus(o.status) === status;
-
-    // Date match
-    let matchDate = true;
-    if (o.createdAt) {
-      if (startDate && o.createdAt < startDate) matchDate = false;
-      if (endDate && o.createdAt > endDate) matchDate = false;
-    }
+    const matchDate = isDateInRange(o.createdAt, startDate, endDate);
 
     return matchQ && matchS && matchDate;
   });
@@ -303,9 +283,10 @@ function OrdersPage() {
     });
 
     setAllOrders(updated);
-    void saveStoredOrders(updated).catch(() => toast.error("Lưu Supabase thất bại"));
+    const changed = updated.filter((o) => selectedIds.includes(o.id));
+    void persistOrdersBatch(changed, updated).catch(() => toast.error("Lưu Supabase thất bại"));
     toast.success(`Đã cập nhật trạng thái hàng loạt cho ${selectedIds.length} vận đơn`, {
-      description: `Trạng thái mới: ${statusLabel[newStatus]}`
+      description: `Trạng thái mới: ${statusLabel[newStatus]}`,
     });
     setSelectedIds([]);
   };
@@ -333,7 +314,10 @@ function OrdersPage() {
     });
 
     setAllOrders(updated);
-    void saveStoredOrders(updated).catch(() => toast.error("Lưu Supabase thất bại"));
+    const changed = updated.find((o) => o.id === orderId);
+    if (changed) {
+      void persistOrder(changed, updated).catch(() => toast.error("Lưu Supabase thất bại"));
+    }
     toast.success(`Đã cập nhật trạng thái vận đơn`, {
       description: statusLabel[newStatus],
     });
@@ -497,7 +481,7 @@ function OrdersPage() {
 
     const newOrdersList = [newOrder, ...allOrders];
     setAllOrders(newOrdersList);
-    void saveStoredOrders(newOrdersList).catch(() => toast.error("Lưu Supabase thất bại"));
+    void persistOrder(newOrder, newOrdersList).catch(() => toast.error("Lưu Supabase thất bại"));
     
     toast.success(isDraft ? `Đã lưu nháp vận đơn ${code}` : `Đã tạo thành công vận đơn ${code}`, {
       description: `Khách hàng: ${selectedClient} - Cước phí: ${formatVND(totalCost)}`

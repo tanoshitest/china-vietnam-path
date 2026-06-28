@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
@@ -23,18 +23,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, Search, Filter } from "lucide-react";
+import { getLocalProducts, loadAllProducts, persistProductsList, type Product } from "@/lib/product-storage";
+import { useTmsPageLoader } from "@/lib/use-tms-page-loader";
 
 export const Route = createFileRoute("/products")({
   component: ProductsPage,
   head: () => ({ meta: [{ title: "Quản lý sản phẩm — Quocviet JR" }] }),
 });
-
-type Product = {
-  id: string;
-  name: string;
-  category: string;
-  unit: string;
-};
 
 const productCategories = ["Điện tử", "Phụ kiện", "Vật tư", "Hàng khác"];
 const PRODUCT_UNITS = ["Cái", "Cuộn", "Thùng"] as const;
@@ -52,31 +47,6 @@ const categoryBadge = (category: string) =>
         ? "bg-amber-100 text-amber-700 border-amber-200"
         : "bg-slate-100 text-slate-700 border-slate-200";
 
-const demoProducts: Product[] = [
-  { id: "SP001", name: "Tai nghe Bluetooth", category: "Điện tử", unit: "Cái" },
-  { id: "SP002", name: "Cáp sạc Type-C", category: "Phụ kiện", unit: "Cái" },
-  { id: "SP003", name: "Thùng carton", category: "Vật tư", unit: "Thùng" },
-];
-
-const getStoredProducts = () => {
-  if (typeof window === "undefined") return demoProducts;
-  const stored = localStorage.getItem("viet_thao_products");
-  if (stored) {
-    try {
-      return JSON.parse(stored) as Product[];
-    } catch {
-      return demoProducts;
-    }
-  }
-  localStorage.setItem("viet_thao_products", JSON.stringify(demoProducts));
-  return demoProducts;
-};
-
-const saveStoredProducts = (items: Product[]) => {
-  if (typeof window === "undefined") return;
-  localStorage.setItem("viet_thao_products", JSON.stringify(items));
-};
-
 function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [open, setOpen] = useState(false);
@@ -90,9 +60,13 @@ function ProductsPage() {
     unit: "Cái",
   });
 
-  useEffect(() => {
-    setProducts(getStoredProducts());
+  const hydrateFromLocal = useCallback(() => {
+    setProducts(getLocalProducts());
   }, []);
+
+  const syncFromRemote = useCallback(() => loadAllProducts().then(setProducts), []);
+
+  useTmsPageLoader(hydrateFromLocal, syncFromRemote);
 
   const handleAddProduct = (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,7 +85,7 @@ function ProductsPage() {
 
     const updated = [...products, newProduct];
     setProducts(updated);
-    saveStoredProducts(updated);
+    void persistProductsList(updated);
     toast.success(`Đã thêm sản phẩm: ${newProduct.name}`);
     setForm({ name: "", category: "Điện tử", unit: "Cái" });
     setOpen(false);
@@ -120,7 +94,7 @@ function ProductsPage() {
   const handleDelete = (id: string, name: string) => {
     const updated = products.filter((item) => item.id !== id);
     setProducts(updated);
-    saveStoredProducts(updated);
+    void persistProductsList(updated);
     if (editingId === id) {
       setEditingId(null);
       setEditDraft({ name: "", unit: "" });
@@ -159,7 +133,7 @@ function ProductsPage() {
       item.id === id ? { ...item, name, unit } : item,
     );
     setProducts(updated);
-    saveStoredProducts(updated);
+    void persistProductsList(updated);
     cancelEditing();
     toast.success(`Đã cập nhật sản phẩm: ${name}`);
   };

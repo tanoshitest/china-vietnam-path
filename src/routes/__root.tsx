@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
 import { AppRoleProvider } from "@/lib/app-role";
+import { TmsBootstrapGate } from "@/lib/tms-bootstrap";
 
 import appCss from "../styles.css?url";
 
@@ -121,7 +122,9 @@ function RootComponent() {
   return (
     <QueryClientProvider client={queryClient}>
       <AppRoleProvider>
-        <Outlet />
+        <TmsBootstrapGate>
+          <Outlet />
+        </TmsBootstrapGate>
       </AppRoleProvider>
       <Toaster />
     </QueryClientProvider>

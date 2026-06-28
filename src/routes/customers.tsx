@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
@@ -28,95 +28,16 @@ import {
   getOrderUpdatedAt,
   type Order,
 } from "@/lib/mock-data";
-import { getStoredOrders } from "@/lib/debt-storage";
-
+import { loadAllOrders, getStoredOrders } from "@/lib/debt-storage";
+import { getLocalCustomers, loadAllCustomers, normalizeCustomer, persistCustomersList, type Customer, type PriceUnit } from "@/lib/customer-storage";
+import { useTmsPageLoader } from "@/lib/use-tms-page-loader";
 export const Route = createFileRoute("/customers")({
   component: CustomersPage,
   head: () => ({ meta: [{ title: "Quản lý khách hàng — Quocviet JR" }] }),
 });
 
-type PriceUnit = "Conts" | "Sacks" | "Bags" | "Rolls";
-
 const PRICE_UNITS: PriceUnit[] = ["Conts", "Sacks", "Bags", "Rolls"];
 const DEFAULT_PRICE_UNIT: PriceUnit = "Rolls";
-
-type Customer = {
-  id: string;
-  name: string;
-  contact: string;
-  address: string;
-  unitPrice: number;
-  priceUnit: PriceUnit;
-};
-
-const demoCustomers: Customer[] = [
-  {
-    id: "KH001",
-    name: "NGUYEN TIEN MINH",
-    contact: "0903 111 222",
-    address: "Số 12 Nguyễn Trãi, Thanh Xuân, Hà Nội",
-    unitPrice: 85000,
-    priceUnit: "Rolls",
-  },
-  {
-    id: "KH002",
-    name: "NGUYEN THI HANH",
-    contact: "0912 333 444",
-    address: "KCN VSIP, Thuận An, Bình Dương",
-    unitPrice: 92000,
-    priceUnit: "Sacks",
-  },
-  {
-    id: "KH003",
-    name: "Điện Tử Phú Quý",
-    contact: "028 8888 9999",
-    address: "Quận 7, TP. Hồ Chí Minh",
-    unitPrice: 78000,
-    priceUnit: "Bags",
-  },
-];
-
-const normalizePriceUnit = (value: unknown): PriceUnit =>
-  PRICE_UNITS.includes(value as PriceUnit) ? (value as PriceUnit) : DEFAULT_PRICE_UNIT;
-
-const normalizeCustomer = (item: Partial<Customer>): Customer => ({
-  id: item.id ?? "",
-  name: item.name ?? "",
-  contact: item.contact ?? "—",
-  address: item.address ?? "—",
-  unitPrice: item.unitPrice ?? 0,
-  priceUnit: normalizePriceUnit(item.priceUnit),
-});
-
-const getStoredCustomers = () => {
-  if (typeof window === "undefined") return demoCustomers;
-  const stored = localStorage.getItem("viet_thao_customers");
-  if (stored) {
-    try {
-      const demoById = Object.fromEntries(demoCustomers.map((c) => [c.id, c]));
-      return (JSON.parse(stored) as Partial<Customer>[]).map((item) => {
-        const normalized = normalizeCustomer(item);
-        const demo = demoById[normalized.id];
-        if (!demo) return normalized;
-        return {
-          ...normalized,
-          address: normalized.address === "—" ? demo.address : normalized.address,
-          unitPrice: normalized.unitPrice > 0 ? normalized.unitPrice : demo.unitPrice,
-          priceUnit: item.priceUnit ? normalized.priceUnit : demo.priceUnit,
-        };
-      });
-    } catch {
-      return demoCustomers;
-    }
-  }
-  localStorage.setItem("viet_thao_customers", JSON.stringify(demoCustomers));
-  return demoCustomers;
-};
-
-const saveStoredCustomers = (items: Customer[]) => {
-  if (typeof window === "undefined") return;
-  localStorage.setItem("viet_thao_customers", JSON.stringify(items));
-};
 
 function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -134,10 +55,19 @@ function CustomersPage() {
   const [q, setQ] = useState("");
   const [form, setForm] = useState({ name: "", contact: "" });
 
-  useEffect(() => {
-    setCustomers(getStoredCustomers());
+  const hydrateFromLocal = useCallback(() => {
+    setCustomers(getLocalCustomers());
     setOrders(getStoredOrders());
   }, []);
+
+  const syncFromRemote = useCallback(() => {
+    return Promise.all([loadAllCustomers(), loadAllOrders()]).then(([nextCustomers, nextOrders]) => {
+      setCustomers(nextCustomers);
+      setOrders(nextOrders);
+    });
+  }, []);
+
+  useTmsPageLoader(hydrateFromLocal, syncFromRemote);
 
   const customerOrders = useMemo(() => {
     if (!selectedCustomer) return [];
@@ -166,7 +96,7 @@ function CustomersPage() {
 
     const updated = [...customers, newCustomer];
     setCustomers(updated);
-    saveStoredCustomers(updated);
+    void persistCustomersList(updated);
     toast.success(`Đã thêm khách hàng: ${newCustomer.name}`);
     setForm({ name: "", contact: "" });
     setOpen(false);
@@ -175,7 +105,7 @@ function CustomersPage() {
   const handleDelete = (id: string, name: string) => {
     const updated = customers.filter((item) => item.id !== id);
     setCustomers(updated);
-    saveStoredCustomers(updated);
+    void persistCustomersList(updated);
     toast.success(`Đã xoá khách hàng: ${name}`);
   };
 
@@ -212,7 +142,7 @@ function CustomersPage() {
       item.id === selectedCustomer.id ? updatedCustomer : item
     );
     setCustomers(updated);
-    saveStoredCustomers(updated);
+    void persistCustomersList(updated);
     setSelectedCustomer(updatedCustomer);
     toast.success("Đã lưu thông tin khách hàng");
   };

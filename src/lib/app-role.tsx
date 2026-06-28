@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { getClientProfileById, getLocalCustomers, loadAllCustomers } from "@/lib/customer-storage";
 
 export type AppRole = "admin" | "client";
 
@@ -33,29 +34,28 @@ const getStoredRole = (): AppRole => {
   return stored === "client" ? "client" : "admin";
 };
 
-const getClientProfile = (): ClientProfile => {
+const readClientProfile = (): ClientProfile => {
   if (typeof window === "undefined") return DEMO_CLIENT;
-  const stored = localStorage.getItem("viet_thao_customers");
-  if (!stored) return DEMO_CLIENT;
-  try {
-    const customers = JSON.parse(stored) as ClientProfile[];
-    return customers.find((item) => item.id === DEMO_CLIENT.id) ?? DEMO_CLIENT;
-  } catch {
-    return DEMO_CLIENT;
-  }
+  return getClientProfileById(DEMO_CLIENT.id);
 };
 
 export function AppRoleProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [role, setRoleState] = useState<AppRole>(() => getStoredRole());
-  const [client, setClient] = useState<ClientProfile>(() => getClientProfile());
+  const [client, setClient] = useState<ClientProfile>(() => readClientProfile());
+
+  useEffect(() => {
+    void loadAllCustomers().then(() => {
+      setClient(getClientProfileById(DEMO_CLIENT.id));
+    });
+  }, []);
 
   const setRole = (nextRole: AppRole) => {
     setRoleState(nextRole);
     if (typeof window !== "undefined") {
       localStorage.setItem(STORAGE_KEY, nextRole);
-      setClient(getClientProfile());
+      setClient(getClientProfileById(DEMO_CLIENT.id));
     }
     if (nextRole === "client") {
       navigate({ to: "/orders" });
@@ -81,7 +81,7 @@ export function AppRoleProvider({ children }: { children: ReactNode }) {
       isClient: role === "client",
       client,
     }),
-    [role, client]
+    [role, client],
   );
 
   return <AppRoleContext.Provider value={value}>{children}</AppRoleContext.Provider>;
@@ -97,10 +97,12 @@ export function useAppRole() {
 
 export function orderBelongsToClient(
   order: { clientId?: string; client?: string },
-  client: ClientProfile
-) {
-  return (
-    order.clientId === client.id ||
-    order.client?.toLowerCase() === client.name.toLowerCase()
-  );
+  client: ClientProfile,
+): boolean {
+  if (order.clientId && order.clientId === client.id) return true;
+  return order.client === client.name;
+}
+
+export function getStoredCustomersForLegacy(): ReturnType<typeof getLocalCustomers> {
+  return getLocalCustomers();
 }

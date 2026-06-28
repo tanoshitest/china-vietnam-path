@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
@@ -33,8 +33,12 @@ import {
   getStoredDebts,
   getStoredOrders,
   inferDebtRecordType,
+  loadAllDebts,
+  loadAllOrders,
   type StoredDebtRecord,
 } from "@/lib/debt-storage";
+import { getLocalSuppliers, loadAllSuppliers, persistSuppliersList } from "@/lib/supplier-storage";
+import { useTmsPageLoader } from "@/lib/use-tms-page-loader";
 
 export const Route = createFileRoute("/suppliers")({
   component: SuppliersPage,
@@ -193,34 +197,6 @@ type SupplierOrderRow = {
   supplierAmount: number;
 };
 
-const getStoredSuppliers = () => {
-  if (typeof window === "undefined") return demoSuppliers;
-  const stored = localStorage.getItem("viet_thao_suppliers");
-  if (stored) {
-    try {
-      const demoById = Object.fromEntries(demoSuppliers.map((item) => [item.id, item]));
-      return (JSON.parse(stored) as Partial<Supplier>[]).map((item) => {
-        const normalized = normalizeSupplier(item);
-        const demo = demoById[normalized.id];
-        if (!demo) return normalized;
-        return {
-          ...normalized,
-          address: normalized.address === "—" ? demo.address : normalized.address,
-        };
-      });
-    } catch {
-      return demoSuppliers;
-    }
-  }
-  localStorage.setItem("viet_thao_suppliers", JSON.stringify(demoSuppliers));
-  return demoSuppliers;
-};
-
-const saveStoredSuppliers = (items: Supplier[]) => {
-  if (typeof window === "undefined") return;
-  localStorage.setItem("viet_thao_suppliers", JSON.stringify(items));
-};
-
 function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -242,16 +218,30 @@ function SuppliersPage() {
     contact: "",
   });
 
-  useEffect(() => {
-    setSuppliers(getStoredSuppliers());
+  const hydrateFromLocal = useCallback(() => {
+    setSuppliers(getLocalSuppliers());
     setOrders(getStoredOrders());
     setDebts(getStoredDebts());
   }, []);
 
+  const syncFromRemote = useCallback(() => {
+    return Promise.all([loadAllSuppliers(), loadAllOrders(), loadAllDebts()]).then(
+      ([nextSuppliers, nextOrders, nextDebts]) => {
+        setSuppliers(nextSuppliers);
+        setOrders(nextOrders);
+        setDebts(nextDebts);
+      },
+    );
+  }, []);
+
+  useTmsPageLoader(hydrateFromLocal, syncFromRemote);
+
   useEffect(() => {
     if (!detailOpen) return;
-    setOrders(getStoredOrders());
-    setDebts(getStoredDebts());
+    void Promise.all([loadAllOrders(), loadAllDebts()]).then(([nextOrders, nextDebts]) => {
+      setOrders(nextOrders);
+      setDebts(nextDebts);
+    });
   }, [detailOpen]);
 
   const supplierOrders = useMemo((): SupplierOrderRow[] => {
@@ -294,7 +284,7 @@ function SuppliersPage() {
 
     const updated = [...suppliers, newSupplier];
     setSuppliers(updated);
-    saveStoredSuppliers(updated);
+    void persistSuppliersList(updated);
     toast.success(`Đã thêm nhà cung cấp: ${newSupplier.name}`);
     setForm({ name: "", type: "Export Handling Agent", contact: "" });
     setOpen(false);
@@ -303,7 +293,7 @@ function SuppliersPage() {
   const handleDelete = (id: string, name: string) => {
     const updated = suppliers.filter((item) => item.id !== id);
     setSuppliers(updated);
-    saveStoredSuppliers(updated);
+    void persistSuppliersList(updated);
     toast.success(`Đã xoá nhà cung cấp: ${name}`);
   };
 
@@ -337,7 +327,7 @@ function SuppliersPage() {
       item.id === selectedSupplier.id ? updatedSupplier : item
     );
     setSuppliers(updated);
-    saveStoredSuppliers(updated);
+    void persistSuppliersList(updated);
     setSelectedSupplier(updatedSupplier);
     toast.success("Đã lưu thông tin nhà cung cấp");
   };

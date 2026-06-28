@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,14 @@ import { toast } from "sonner";
 import { orderBelongsToClient, useAppRole } from "@/lib/app-role";
 import { probeSupabaseSync } from "@/lib/supabase-health";
 import { loadAllOrders, persistOrder } from "@/lib/order-storage";
+import { useTmsDataRefresh } from "@/lib/use-tms-data-refresh";
+import {
+  getLocalCustomers,
+  loadAllCustomers,
+  normalizeCustomer,
+  persistCustomersList,
+  type Customer,
+} from "@/lib/customer-storage";
 
 const ORDER_SPEC_UNITS = ["Conts", "Sacks", "Bags", "Rolls"] as const;
 type OrderSpecUnit = (typeof ORDER_SPEC_UNITS)[number];
@@ -67,33 +75,12 @@ export const Route = createFileRoute("/orders/$id")({
   }),
 });
 
-type StoredCustomer = {
-  id: string;
-  name: string;
-  contact?: string;
-  address?: string;
-  unitPrice?: number;
-  priceUnit?: string;
-};
+type StoredCustomer = Pick<Customer, "id" | "name" | "contact" | "address" | "unitPrice" | "priceUnit">;
 
-const getStoredCustomers = (): StoredCustomer[] => {
-  if (typeof window === "undefined") {
-    return mockClients.map((c) => ({ id: c.id, name: c.name, contact: c.contact ?? "—" }));
-  }
-  const stored = localStorage.getItem("viet_thao_customers");
-  if (stored) {
-    try {
-      return JSON.parse(stored) as StoredCustomer[];
-    } catch {
-      return mockClients.map((c) => ({ id: c.id, name: c.name, contact: c.contact ?? "—" }));
-    }
-  }
-  return mockClients.map((c) => ({ id: c.id, name: c.name, contact: c.contact ?? "—" }));
-};
+const getStoredCustomers = (): StoredCustomer[] => getLocalCustomers();
 
 const saveStoredCustomers = (items: StoredCustomer[]) => {
-  if (typeof window === "undefined") return;
-  localStorage.setItem("viet_thao_customers", JSON.stringify(items));
+  void persistCustomersList(items.map((item) => normalizeCustomer(item)));
 };
 
 const MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024;
@@ -162,19 +149,15 @@ function OrderDetail() {
     void probeSupabaseSync().then(setCloudSync);
   }, []);
 
-  // Load order data
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
+  const reloadOrder = useCallback(() => {
+    void (async () => {
       setLoading(true);
       skipSaveRef.current = true;
 
       const list = await loadAllOrders();
-      if (cancelled) return;
-
       setAllOrders(list);
       setLocalClients(getStoredCustomers());
+      void loadAllCustomers().then(() => setLocalClients(getStoredCustomers()));
       const target = list.find((o) => o.id === id || o.code === id);
 
       if (target) {
@@ -211,11 +194,14 @@ function OrderDetail() {
         skipSaveRef.current = false;
       }, 300);
     })();
-
-    return () => {
-      cancelled = true;
-    };
   }, [id]);
+
+  // Load order data
+  useEffect(() => {
+    reloadOrder();
+  }, [reloadOrder]);
+
+  useTmsDataRefresh(reloadOrder);
 
   const readOnly = isClient;
 

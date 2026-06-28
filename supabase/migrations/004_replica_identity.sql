@@ -1,0 +1,8 @@
+-- Realtime gửi đủ dữ liệu khi UPDATE (cần cho đồng bộ liên trình duyệt)
+ALTER TABLE tms_orders REPLICA IDENTITY FULL;
+ALTER TABLE tms_products REPLICA IDENTITY FULL;
+ALTER TABLE tms_customers REPLICA IDENTITY FULL;
+ALTER TABLE tms_suppliers REPLICA IDENTITY FULL;
+ALTER TABLE tms_debts REPLICA IDENTITY FULL;
+ALTER TABLE tms_users REPLICA IDENTITY FULL;
+ALTER TABLE tms_cost_types REPLICA IDENTITY FULL;

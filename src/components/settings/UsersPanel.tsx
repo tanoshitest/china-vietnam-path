@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,19 +21,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Plus, Trash2, Search, Filter, Mail, Phone } from "lucide-react";
-
-type UserRole = "Admin" | "Sale";
-type UserStatus = "Hoạt động" | "Tạm khóa";
-
-type UserItem = {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  role: UserRole;
-  status: UserStatus;
-  createdAt: string;
-};
+import { getLocalUsers, loadAllUsers, persistUsersList, type UserItem, type UserRole, type UserStatus } from "@/lib/user-storage";
+import { useTmsDataRefresh } from "@/lib/use-tms-data-refresh";
 
 const roleOptions: UserRole[] = ["Admin", "Sale"];
 
@@ -47,33 +36,6 @@ const statusBadge = (status: UserStatus) =>
     ? "bg-emerald-100 text-emerald-700 border-emerald-200"
     : "bg-slate-100 text-slate-600 border-slate-200";
 
-const demoUsers: UserItem[] = [
-  { id: "U001", name: "Nguyễn Văn An", email: "an@quocvietjr.vn", phone: "0903 111 222", role: "Admin", status: "Hoạt động", createdAt: "2026-01-05" },
-  { id: "U002", name: "Trần Thị Bình", email: "binh@quocvietjr.vn", phone: "0912 333 444", role: "Sale", status: "Hoạt động", createdAt: "2026-02-12" },
-  { id: "U003", name: "Lê Văn Cường", email: "cuong@quocvietjr.vn", phone: "0988 555 666", role: "Sale", status: "Hoạt động", createdAt: "2026-03-20" },
-  { id: "U004", name: "Phạm Thị Dung", email: "dung@quocvietjr.vn", phone: "0977 888 999", role: "Sale", status: "Tạm khóa", createdAt: "2026-04-02" },
-  { id: "U005", name: "Hoàng Minh Đức", email: "duc@quocvietjr.vn", phone: "0905 121 314", role: "Admin", status: "Hoạt động", createdAt: "2026-05-18" },
-];
-
-const getStoredUsers = () => {
-  if (typeof window === "undefined") return demoUsers;
-  const stored = localStorage.getItem("viet_thao_users");
-  if (stored) {
-    try {
-      return JSON.parse(stored) as UserItem[];
-    } catch {
-      return demoUsers;
-    }
-  }
-  localStorage.setItem("viet_thao_users", JSON.stringify(demoUsers));
-  return demoUsers;
-};
-
-const saveStoredUsers = (items: UserItem[]) => {
-  if (typeof window === "undefined") return;
-  localStorage.setItem("viet_thao_users", JSON.stringify(items));
-};
-
 export function UsersPanel() {
   const [users, setUsers] = useState<UserItem[]>([]);
   const [open, setOpen] = useState(false);
@@ -86,9 +48,15 @@ export function UsersPanel() {
     role: "Sale" as UserRole,
   });
 
-  useEffect(() => {
-    setUsers(getStoredUsers());
+  const reload = useCallback(() => {
+    void loadAllUsers().then(setUsers);
   }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  useTmsDataRefresh(reload);
 
   const handleAddUser = (e: React.FormEvent) => {
     e.preventDefault();
@@ -109,7 +77,7 @@ export function UsersPanel() {
 
     const updated = [...users, newUser];
     setUsers(updated);
-    saveStoredUsers(updated);
+    void persistUsersList(updated);
     toast.success(`Đã thêm người dùng: ${newUser.name}`);
     setForm({ name: "", email: "", phone: "", role: "Sale" });
     setOpen(false);
@@ -122,13 +90,13 @@ export function UsersPanel() {
         : item
     );
     setUsers(updated);
-    saveStoredUsers(updated);
+    void persistUsersList(updated);
   };
 
   const handleDelete = (id: string, name: string) => {
     const updated = users.filter((item) => item.id !== id);
     setUsers(updated);
-    saveStoredUsers(updated);
+    void persistUsersList(updated);
     toast.success(`Đã xoá người dùng: ${name}`);
   };
 

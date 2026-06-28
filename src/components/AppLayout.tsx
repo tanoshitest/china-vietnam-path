@@ -10,6 +10,7 @@ import {
   UserCog,
   History,
   Receipt,
+  ArrowLeftRight,
 } from "lucide-react";
 import {
   Select,
@@ -20,6 +21,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useAppRole, type AppRole } from "@/lib/app-role";
+import { CloudSyncBanner } from "@/components/CloudSyncBanner";
 
 type NavItemType = { to: string; label: string; icon: React.ElementType };
 
@@ -51,6 +53,7 @@ const adminNavGroups = [
       { to: "/vendors?kind=Phải thu", label: "Công nợ phải thu", icon: Wallet },
       { to: "/vendors?kind=Phải trả", label: "Công nợ phải trả", icon: Wallet },
       { to: "/vendors?kind=Cập nhật chi phí", label: "Cập Nhật Chi phí", icon: Receipt },
+      { to: "/cashflow", label: "Quản lý thu chi", icon: ArrowLeftRight },
     ],
   },
   {
@@ -118,9 +121,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const isClientOrdersList = isClient && pathname === "/orders";
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
+    <div className="flex h-screen flex-col overflow-hidden bg-slate-50">
+      <CloudSyncBanner />
+      <div className="flex min-h-0 flex-1 overflow-hidden">
       {isAdmin && (
-        <aside className="sticky top-0 flex h-screen w-[260px] shrink-0 flex-col border-r border-slate-200 bg-white">
+        <aside className="sticky top-0 flex h-full w-[260px] shrink-0 flex-col border-r border-slate-200 bg-white">
           <div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-200 px-3">
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary">
               <Truck className="h-3.5 w-3.5 text-primary-foreground" />
@@ -204,6 +209,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         >
           {children}
         </main>
+      </div>
       </div>
     </div>
   );

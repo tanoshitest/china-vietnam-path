@@ -13,3 +13,19 @@ export const supabase = createClient<Database>(
   supabaseUrl || "https://placeholder.supabase.co",
   supabaseAnonKey || "placeholder-anon-key",
 );
+
+export const TMS_CLOUD_STATUS_EVENT = "tms-cloud-status";
+
+export type CloudStatus = "syncing" | "online" | "offline";
+
+let cloudStatus: CloudStatus = isSupabaseConfigured ? "syncing" : "offline";
+
+export function getCloudStatus(): CloudStatus {
+  return cloudStatus;
+}
+
+export function emitCloudStatus(status: CloudStatus): void {
+  cloudStatus = status;
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(TMS_CLOUD_STATUS_EVENT, { detail: status }));
+}

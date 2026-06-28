@@ -1,6 +1,30 @@
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
-const DISABLED_KEY = "tms_supabase_sync_disabled";
+export type SupabaseProbeResult = {
+  reachable: boolean;
+  orderCount: number;
+  error?: string;
+};
+
+/** Kiểm tra kết nối cloud (fetch thật, không chỉ ping rỗng). */
+export async function probeSupabaseOrders(): Promise<SupabaseProbeResult> {
+  if (!isSupabaseConfigured) {
+    return { reachable: false, orderCount: 0, error: "Chưa cấu hình Supabase" };
+  }
+
+  try {
+    const { data, error } = await supabase.from("tms_orders").select("id", { count: "exact" });
+    if (error) {
+      handleSupabaseSyncError(error);
+      return { reachable: false, orderCount: 0, error: error.message };
+    }
+    return { reachable: true, orderCount: data?.length ?? 0 };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    handleSupabaseSyncError(error);
+    return { reachable: false, orderCount: 0, error: message };
+  }
+}
 
 export function isSupabaseErrorMissingTable(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -13,51 +37,42 @@ export function isSupabaseErrorMissingTable(error: unknown): boolean {
   );
 }
 
-export function disableSupabaseSync(): void {
-  if (typeof window !== "undefined") {
-    sessionStorage.setItem(DISABLED_KEY, "1");
-  }
-}
-
-export function isSupabaseSyncDisabled(): boolean {
-  if (typeof window === "undefined") return false;
-  return sessionStorage.getItem(DISABLED_KEY) === "1";
-}
-
 export function handleSupabaseSyncError(error: unknown): void {
   if (isSupabaseErrorMissingTable(error)) {
-    disableSupabaseSync();
     console.info(
-      "[TMS] Bảng Supabase chưa sẵn sàng — dữ liệu lưu trên trình duyệt. Thêm SUPABASE_DB_PASSWORD vào .env rồi chạy lại npm run dev để tự tạo bảng.",
+      "[TMS] Bảng Supabase chưa sẵn sàng — dữ liệu lưu trên trình duyệt. Chạy npm run setup-db.",
     );
   }
 }
 
-let probePromise: Promise<boolean> | null = null;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Kiểm tra một lần: bảng tms_orders có tồn tại và ghi được không. */
-export async function probeSupabaseSync(): Promise<boolean> {
-  if (!isSupabaseConfigured || isSupabaseSyncDisabled()) return false;
-  if (probePromise) return probePromise;
-
-  probePromise = (async () => {
-    try {
-      const { error } = await supabase.from("tms_orders").select("id").limit(1);
-      if (error) {
-        handleSupabaseSyncError(error);
-        return false;
-      }
-      return true;
-    } catch (error) {
+async function probeSupabaseOnce(): Promise<boolean> {
+  try {
+    const { error } = await supabase.from("tms_orders").select("id").limit(1);
+    if (error) {
       handleSupabaseSyncError(error);
       return false;
     }
-  })();
-
-  return probePromise;
+    return true;
+  } catch (error) {
+    handleSupabaseSyncError(error);
+    return false;
+  }
 }
 
-export async function canSyncToSupabase(): Promise<boolean> {
-  if (!isSupabaseConfigured || isSupabaseSyncDisabled()) return false;
-  return probeSupabaseSync();
+/** Luôn thử lại — không cache trạng thái fail cũ trong session. */
+export async function canSyncToSupabase(retries = 3): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    if (await probeSupabaseOnce()) return true;
+    if (attempt < retries - 1) await sleep(400 * (attempt + 1));
+  }
+
+  return false;
+}
+
+export async function probeSupabaseSync(): Promise<boolean> {
+  return canSyncToSupabase();
 }

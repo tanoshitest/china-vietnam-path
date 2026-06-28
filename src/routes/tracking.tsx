@@ -1,12 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, CheckCircle2, Circle, Package } from "lucide-react";
 import { statusLabel, statusColor, normalizeStatus, type Order } from "@/lib/mock-data";
-import { getStoredOrders } from "@/lib/debt-storage";
+import { getLocalOrders, loadAllOrders } from "@/lib/order-storage";
+import { useTmsPageLoader } from "@/lib/use-tms-page-loader";
 import { cn } from "@/lib/utils";
 import { orderBelongsToClient, useAppRole } from "@/lib/app-role";
 
@@ -26,12 +27,18 @@ function TrackingPage() {
   const [code, setCode] = useState("CRTO-2511025-01");
   const [searched, setSearched] = useState("CRTO-2511025-01");
 
-  useEffect(() => {
-    const stored = getStoredOrders();
-    setOrders(
-      isClient ? stored.filter((order) => orderBelongsToClient(order, client)) : stored
-    );
+  const hydrateFromLocal = useCallback(() => {
+    const stored = getLocalOrders();
+    setOrders(isClient ? stored.filter((order) => orderBelongsToClient(order, client)) : stored);
   }, [isClient, client]);
+
+  const syncFromRemote = useCallback(() => {
+    return loadAllOrders().then((stored) => {
+      setOrders(isClient ? stored.filter((order) => orderBelongsToClient(order, client)) : stored);
+    });
+  }, [isClient, client]);
+
+  useTmsPageLoader(hydrateFromLocal, syncFromRemote);
 
   const order = orders.find((o) => o.code.toLowerCase() === searched.toLowerCase());
 

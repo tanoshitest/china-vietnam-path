@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
@@ -22,6 +22,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { clients, formatVND, orders as mockOrders, vendors, type Order } from "@/lib/mock-data";
+import { getLocalOrders, loadAllOrders } from "@/lib/order-storage";
+import {
+  ensureDebtId,
+  getLocalDebts,
+  loadAllDebts,
+  persistDebtsList,
+  type StoredDebtRecord,
+} from "@/lib/debt-storage";
+import { useTmsPageLoader } from "@/lib/use-tms-page-loader";
+import { loadAllCashflowVouchers, getLocalCashflowVouchers, type CashflowVoucher } from "@/lib/cashflow-storage";
+import {
+  computePaidByDebt,
+  getDebtBalance,
+  type DebtBalance,
+} from "@/lib/debt-payment";
 import { cn } from "@/lib/utils";
 import { Filter, Search } from "lucide-react";
 
@@ -232,68 +247,64 @@ const matchOrderDebt = (item: DebtItem, order: Order) =>
 const findDebtByType = (debts: DebtItem[], order: Order, recordType: DebtRecordType) =>
   debts.find((d) => d.recordType === recordType && matchOrderDebt(d, order));
 
-const getStoredOrders = (): Order[] => {
-  if (typeof window === "undefined") return mockOrders;
-  const stored = localStorage.getItem("viet_thao_orders");
-  if (stored) {
-    try {
-      return JSON.parse(stored) as Order[];
-    } catch {
-      return mockOrders;
-    }
-  }
-  return mockOrders;
-};
+const parseDebtItems = (records: StoredDebtRecord[]): DebtItem[] =>
+  records
+    .filter((item) => item.orderId || item.waybill)
+    .map((item) => {
+      const recordType = inferRecordType(
+        item as Partial<DebtItem> & { kind?: string; costBreakdown?: CostBreakdown },
+      );
+      const breakdown =
+        recordType === "cost" ? normalizeStoredBreakdown(item.costBreakdown) : undefined;
+      const amount =
+        item.amount ?? (recordType === "cost" ? sumBreakdownData(breakdown) : item.amount ?? 0);
 
-const getStoredDebts = (): DebtItem[] => {
-  if (typeof window === "undefined") return [];
-  const stored = localStorage.getItem("viet_thao_debts");
-  if (!stored) return [];
-  try {
-    const parsed = JSON.parse(stored) as Array<Partial<DebtItem> & { id?: string; dueDate?: string }>;
-    return parsed
-      .filter((item) => item.orderId || item.waybill)
-      .map((item) => {
-        const recordType = inferRecordType(item);
-        const breakdown =
-          recordType === "cost" ? normalizeStoredBreakdown(item.costBreakdown) : undefined;
-        const amount =
-          item.amount ??
-          (recordType === "cost" ? sumBreakdownData(breakdown) : item.amount ?? 0);
+      const base = {
+        orderId: item.orderId ?? "",
+        waybill: item.waybill ?? "",
+        amount,
+        recordType,
+        costBreakdown: breakdown,
+      };
 
-        const base = {
-          orderId: item.orderId ?? "",
-          waybill: item.waybill ?? "",
-          amount,
-          recordType,
-          costBreakdown: breakdown,
-        };
-
-        if (recordType === "receivable" || recordType === "payable") {
-          return {
-            ...base,
-            kind: recordType === "receivable" ? ("Phải thu" as const) : ("Phải trả" as const),
-            paymentStatus: normalizePaymentStatus(
-              item.paymentStatus as PaymentStatus | undefined,
-              item.status as PayableStatus | undefined
-            ),
-          };
-        }
-
+      if (recordType === "receivable" || recordType === "payable") {
         return {
           ...base,
-          kind: "Cập nhật chi phí" as const,
-          status: (item.status as PayableStatus) ?? "Đang xử lý",
+          kind: recordType === "receivable" ? ("Phải thu" as const) : ("Phải trả" as const),
+          paymentStatus: normalizePaymentStatus(
+            item.paymentStatus as PaymentStatus | undefined,
+            (item as { status?: PayableStatus }).status,
+          ),
         };
-      });
-  } catch {
-    return [];
-  }
-};
+      }
+
+      return {
+        ...base,
+        kind: "Cập nhật chi phí" as const,
+        status: ((item as { status?: PayableStatus }).status ?? "Đang xử lý") as PayableStatus,
+      };
+    });
+
+const getStoredOrders = (): Order[] => getLocalOrders();
+
+const getStoredDebts = (): DebtItem[] => parseDebtItems(getLocalDebts());
 
 const saveStoredDebts = (items: DebtItem[]) => {
-  if (typeof window === "undefined") return;
-  localStorage.setItem("viet_thao_debts", JSON.stringify(items));
+  const stored: StoredDebtRecord[] = items.map((item, index) => ({
+    id: ensureDebtId(
+      { orderId: item.orderId, waybill: item.waybill, recordType: item.recordType },
+      index,
+    ),
+    orderId: item.orderId,
+    waybill: item.waybill,
+    amount: item.amount,
+    recordType: item.recordType,
+    kind: item.kind,
+    paymentStatus: item.paymentStatus,
+    costBreakdown: item.costBreakdown,
+    ...(item.status ? { status: item.status } : {}),
+  }));
+  void persistDebtsList(stored);
 };
 
 const getPartyName = (partyId: string) => {
@@ -349,6 +360,7 @@ function DebtManagementPage() {
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [debts, setDebts] = useState<DebtItem[]>([]);
+  const [vouchers, setVouchers] = useState<CashflowVoucher[]>([]);
   const [open, setOpen] = useState(false);
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [q, setQ] = useState("");
@@ -357,17 +369,23 @@ function DebtManagementPage() {
 
   const totalCost = useMemo(() => sumBreakdownForm(form), [form]);
 
-  const reload = () => {
-    setOrders(getStoredOrders());
-    setDebts(getStoredDebts());
-  };
-
-  useEffect(() => {
-    reload();
-    const onFocus = () => reload();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+  const hydrateFromLocal = useCallback(() => {
+    setOrders(getLocalOrders());
+    setDebts(parseDebtItems(getLocalDebts()));
+    setVouchers(getLocalCashflowVouchers());
   }, []);
+
+  const syncFromRemote = useCallback(() => {
+    return Promise.all([loadAllOrders(), loadAllDebts(), loadAllCashflowVouchers()]).then(
+      ([nextOrders, nextDebts, nextVouchers]) => {
+        setOrders(nextOrders);
+        setDebts(parseDebtItems(nextDebts));
+        setVouchers(nextVouchers);
+      },
+    );
+  }, []);
+
+  useTmsPageLoader(hydrateFromLocal, syncFromRemote);
 
   const rows: OrderDebtRow[] = useMemo(
     () =>
@@ -379,18 +397,23 @@ function DebtManagementPage() {
     [orders, debts, listRecordType]
   );
 
-  const getPaymentStatus = (debt?: DebtItem): PaymentStatus => debt?.paymentStatus ?? "Chưa thanh toán";
+  const paidMap = useMemo(() => computePaidByDebt(vouchers), [vouchers]);
 
-  const getPayableAmount = (order: Order, costDebt?: DebtItem) => {
-    const total = costDebt ? sumBreakdownData(costDebt.costBreakdown) : 0;
-    return total > 0 ? total : costDebt?.amount ?? 0;
-  };
+  const getOrderBalance = useCallback(
+    (order: Order, recordType: "receivable" | "payable"): DebtBalance | null =>
+      getDebtBalance(order, recordType, debts, paidMap, vouchers),
+    [debts, paidMap, vouchers],
+  );
+
 
   const filteredRows = useMemo(
     () =>
-      rows.filter(({ order, debt, costDebt }) => {
+      rows.filter(({ order, costDebt }) => {
         if (isPaymentPage) {
-          const paymentStatus = getPaymentStatus(debt);
+          const recordType = isReceivable ? "receivable" : "payable";
+          const balance = getOrderBalance(order, recordType);
+          if (!balance || balance.originalAmount <= 0) return false;
+          const paymentStatus = balance.paymentStatus;
           if (paymentStatusFilter !== "all" && paymentStatus !== paymentStatusFilter) return false;
         }
 
@@ -419,36 +442,8 @@ function DebtManagementPage() {
           order.code.toLowerCase().includes(needle) || order.client.toLowerCase().includes(needle)
         );
       }),
-    [rows, q, isCostUpdate, isPayableDebt, isPaymentPage, paymentStatusFilter]
+    [rows, q, isCostUpdate, isPayableDebt, isPaymentPage, paymentStatusFilter, getOrderBalance, isReceivable]
   );
-
-  const updatePaymentStatus = (
-    order: Order,
-    recordType: "receivable" | "payable",
-    paymentStatus: PaymentStatus
-  ) => {
-    const existing = findDebtByType(debts, order, recordType);
-    const costDebt = findDebtByType(debts, order, "cost");
-    const amount =
-      recordType === "receivable" ? order.fee : getPayableAmount(order, costDebt);
-
-    const record: DebtItem = {
-      orderId: order.id,
-      waybill: order.code,
-      amount,
-      recordType,
-      kind: recordType === "receivable" ? "Phải thu" : "Phải trả",
-      paymentStatus,
-    };
-
-    const updated = existing
-      ? debts.map((d) => (d.recordType === recordType && matchOrderDebt(d, order) ? record : d))
-      : [...debts, record];
-
-    setDebts(updated);
-    saveStoredDebts(updated);
-    toast.success(`Đã cập nhật trạng thái thanh toán vận đơn ${order.code}`);
-  };
 
   const updateBreakdownAmount = (key: CostLineKey, raw: string) => {
     const numeric = raw.replace(/[^\d]/g, "");
@@ -534,8 +529,8 @@ function DebtManagementPage() {
             {isCostUpdate
               ? "Danh sách vận đơn đồng bộ từ quản lý đơn hàng — bấm vào từng dòng để chọn nhà cung cấp và nhập chi phí."
               : isReceivable
-                ? "Công nợ phải thu của khách hàng theo từng vận đơn — cập nhật trạng thái thanh toán trực tiếp trên bảng."
-                : "Công nợ phải trả cho tất cả đối tác theo từng vận đơn — số tiền lấy từ chi phí đã nhập, cập nhật trạng thái thanh toán trên bảng."}
+                ? "Công nợ phải thu theo vận đơn — cập nhật qua phiếu thu tại Quản lý thu chi."
+                : "Công nợ phải trả theo vận đơn — cập nhật qua phiếu chi tại Quản lý thu chi."}
           </p>
         </div>
 
@@ -743,7 +738,7 @@ function DebtManagementPage() {
               </tbody>
             </table>
             ) : (
-            <table className="w-full min-w-[720px] text-sm">
+            <table className="w-full min-w-[920px] text-sm">
               <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-600">
                 <tr>
                   <th className="whitespace-nowrap px-4 py-3 text-left">Vận đơn</th>
@@ -752,17 +747,21 @@ function DebtManagementPage() {
                     <th className="whitespace-nowrap px-4 py-3 text-left">Đối tác</th>
                   )}
                   <th className="whitespace-nowrap px-4 py-3 text-right">
-                    {isReceivable ? "Số tiền phải thu" : "Số tiền phải trả"}
+                    {isReceivable ? "Phải thu" : "Phải trả"}
                   </th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right">
+                    {isReceivable ? "Đã thu" : "Đã chi"}
+                  </th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right">Còn lại</th>
                   <th className="whitespace-nowrap px-4 py-3 text-left">Thanh toán</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredRows.map(({ order, debt, costDebt }) => {
-                  const paymentStatus = getPaymentStatus(debt);
-                  const amount = isReceivable
-                    ? order.fee
-                    : getPayableAmount(order, costDebt);
+                {filteredRows.map(({ order, costDebt }) => {
+                  const recordType = isReceivable ? "receivable" : "payable";
+                  const balance = getOrderBalance(order, recordType);
+                  if (!balance || balance.originalAmount <= 0) return null;
+                  const paymentStatus = balance.paymentStatus;
                   return (
                     <tr key={order.id} className="transition-colors hover:bg-slate-50/60">
                       <td className="whitespace-nowrap px-4 py-3 font-mono text-xs font-bold text-primary">
@@ -777,43 +776,31 @@ function DebtManagementPage() {
                           {getBreakdownSuppliersSummary(costDebt?.costBreakdown)}
                         </td>
                       )}
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-slate-700">
+                        {formatVND(balance.originalAmount)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-emerald-700">
+                        {balance.paidAmount > 0 ? formatVND(balance.paidAmount) : "—"}
+                      </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right font-bold tabular-nums text-slate-900">
-                        {amount > 0 ? formatVND(amount) : "—"}
+                        {formatVND(balance.remainingAmount)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
-                        <Select
-                          value={paymentStatus}
-                          onValueChange={(val) =>
-                            updatePaymentStatus(
-                              order,
-                              isReceivable ? "receivable" : "payable",
-                              val as PaymentStatus
-                            )
-                          }
+                        <span
+                          className={cn(
+                            "inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold",
+                            paymentStatusBadge(paymentStatus),
+                          )}
                         >
-                          <SelectTrigger
-                            className={cn(
-                              "h-9 min-w-[160px] border text-xs font-semibold shadow-sm",
-                              paymentStatusBadge(paymentStatus)
-                            )}
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent align="start">
-                            {PAYMENT_STATUS_OPTIONS.map((option) => (
-                              <SelectItem key={option} value={option} className="text-xs">
-                                {option}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          {paymentStatus}
+                        </span>
                       </td>
                     </tr>
                   );
                 })}
                 {filteredRows.length === 0 && (
                   <tr>
-                    <td colSpan={isPayableDebt ? 5 : 4} className="px-4 py-12 text-center text-sm text-slate-400">
+                    <td colSpan={isPayableDebt ? 7 : 6} className="px-4 py-12 text-center text-sm text-slate-400">
                       {orders.length === 0
                         ? "Chưa có vận đơn. Tạo đơn hàng tại Quản lý Vận đơn để đồng bộ sang đây."
                         : "Không có dữ liệu phù hợp."}

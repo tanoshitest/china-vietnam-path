@@ -1,5 +1,5 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -29,12 +29,15 @@ import {
 } from "@/lib/mock-data";
 import {
   buildEbtRows,
-  getStoredDebts,
+  getLocalDebts,
   getStoredOrders,
+  loadAllDebts,
+  loadAllOrders,
   type EbtRow,
 } from "@/lib/debt-storage";
 import { cn } from "@/lib/utils";
 import { useAppRole } from "@/lib/app-role";
+import { useTmsPageLoader } from "@/lib/use-tms-page-loader";
 
 export const Route = createFileRoute("/")({
   component: Dashboard,
@@ -235,19 +238,20 @@ function Dashboard() {
     return <Navigate to="/orders" />;
   }
 
-  const reload = () => {
+  const hydrateFromLocal = useCallback(() => {
     const storedOrders = getStoredOrders();
-    const debts = getStoredDebts();
     setOrders(storedOrders);
-    setEbtRows(buildEbtRows(storedOrders, debts));
-  };
-
-  useEffect(() => {
-    reload();
-    const onFocus = () => reload();
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    setEbtRows(buildEbtRows(storedOrders, getLocalDebts()));
   }, []);
+
+  const syncFromRemote = useCallback(() => {
+    return Promise.all([loadAllOrders(), loadAllDebts()]).then(([storedOrders, debts]) => {
+      setOrders(storedOrders);
+      setEbtRows(buildEbtRows(storedOrders, debts));
+    });
+  }, []);
+
+  useTmsPageLoader(hydrateFromLocal, syncFromRemote);
 
   return (
     <AppLayout>

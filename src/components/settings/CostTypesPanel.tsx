@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,38 +14,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Plus, Trash2, PencilLine, Search } from "lucide-react";
-
-type CostType = {
-  id: string;
-  name: string;
-  note?: string;
-};
-
-const demoCostTypes: CostType[] = [
-  { id: "CT01", name: "Vận chuyển", note: "Chi phí vận chuyển hàng hóa" },
-  { id: "CT02", name: "Thông quan", note: "Chi phí khai báo, thủ tục hải quan" },
-  { id: "CT03", name: "Bốc xếp", note: "Chi phí bốc dỡ tại kho hoặc cửa khẩu" },
-  { id: "CT04", name: "Nhà xe", note: "Chi phí xe nội địa" },
-];
-
-const getStoredCostTypes = () => {
-  if (typeof window === "undefined") return demoCostTypes;
-  const stored = localStorage.getItem("viet_thao_cost_types");
-  if (stored) {
-    try {
-      return JSON.parse(stored) as CostType[];
-    } catch {
-      return demoCostTypes;
-    }
-  }
-  localStorage.setItem("viet_thao_cost_types", JSON.stringify(demoCostTypes));
-  return demoCostTypes;
-};
-
-const saveStoredCostTypes = (items: CostType[]) => {
-  if (typeof window === "undefined") return;
-  localStorage.setItem("viet_thao_cost_types", JSON.stringify(items));
-};
+import {
+  getLocalCostTypes,
+  loadAllCostTypes,
+  persistCostTypesList,
+  type CostType,
+} from "@/lib/cost-type-storage";
+import { useTmsDataRefresh } from "@/lib/use-tms-data-refresh";
 
 export function CostTypesPanel() {
   const [costTypes, setCostTypes] = useState<CostType[]>([]);
@@ -54,9 +29,15 @@ export function CostTypesPanel() {
   const [form, setForm] = useState({ name: "", note: "" });
   const [q, setQ] = useState("");
 
-  useEffect(() => {
-    setCostTypes(getStoredCostTypes());
+  const reload = useCallback(() => {
+    void loadAllCostTypes().then(setCostTypes);
   }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  useTmsDataRefresh(reload);
 
   const resetForm = () => {
     setForm({ name: "", note: "" });
@@ -83,7 +64,7 @@ export function CostTypesPanel() {
         item.id === editingId ? { ...item, name: cleanedName, note: form.note.trim() } : item
       );
       setCostTypes(updated);
-      saveStoredCostTypes(updated);
+      void persistCostTypesList(updated);
       toast.success(`Đã cập nhật loại chi phí: ${cleanedName}`);
     } else {
       const newType: CostType = {
@@ -93,7 +74,7 @@ export function CostTypesPanel() {
       };
       const updated = [...costTypes, newType];
       setCostTypes(updated);
-      saveStoredCostTypes(updated);
+      void persistCostTypesList(updated);
       toast.success(`Đã thêm loại chi phí: ${cleanedName}`);
     }
 
@@ -109,7 +90,7 @@ export function CostTypesPanel() {
   const handleDelete = (id: string, name: string) => {
     const updated = costTypes.filter((item) => item.id !== id);
     setCostTypes(updated);
-    saveStoredCostTypes(updated);
+    void persistCostTypesList(updated);
     toast.success(`Đã xóa loại chi phí: ${name}`);
   };
 
